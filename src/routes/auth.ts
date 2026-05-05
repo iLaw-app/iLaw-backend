@@ -25,6 +25,7 @@ if (process.env.KAKAO_CLIENT_ID) {
   );
 }
 
+console.log('[ENV CHECK] GOOGLE_CLIENT_ID:', !!process.env.GOOGLE_CLIENT_ID, '/ KAKAO_CLIENT_ID:', !!process.env.KAKAO_CLIENT_ID, '/ NAVER_CLIENT_ID:', !!process.env.NAVER_CLIENT_ID);
 if (process.env.GOOGLE_CLIENT_ID) {
   passport.use(
     new GoogleStrategy(

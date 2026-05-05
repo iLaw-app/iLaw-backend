@@ -367,6 +367,135 @@
           }
         }
       }
+    },
+    "/auth/kakao/token": {
+      "post": {
+        "summary": "카카오 SDK 로그인",
+        "description": "카카오 SDK로 받은 accessToken으로 JWT를 발급합니다.",
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "accessToken"
+                ],
+                "properties": {
+                  "accessToken": {
+                    "type": "string",
+                    "example": "eyJhbGci..."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 토큰"
+          }
+        }
+      }
+    },
+    "/auth/google/token": {
+      "post": {
+        "summary": "구글 SDK 로그인",
+        "description": "Google Sign-In SDK로 받은 idToken으로 JWT를 발급합니다.",
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "idToken"
+                ],
+                "properties": {
+                  "idToken": {
+                    "type": "string",
+                    "example": "eyJhbGci..."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 토큰"
+          }
+        }
+      }
+    },
+    "/auth/naver/token": {
+      "post": {
+        "summary": "네이버 SDK 로그인",
+        "description": "네이버 SDK로 받은 accessToken으로 JWT를 발급합니다.",
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "accessToken"
+                ],
+                "properties": {
+                  "accessToken": {
+                    "type": "string",
+                    "example": "eyJhbGci..."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "로그인 성공",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "유효하지 않은 토큰"
+          }
+        }
+      }
     }
   },
   "tags": []

@@ -16,9 +16,11 @@
   "description": "",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "axios": "^1.16.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",

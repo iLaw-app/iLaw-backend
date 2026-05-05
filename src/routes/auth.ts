@@ -5,6 +5,7 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as NaverStrategy } from 'passport-naver-v2';
 import { upsertUser } from '../services/auth.service';
 import { handleSocialCallback, refresh, logout, getMe, completeProfile } from '../controllers/auth.controller';
+import { kakaoSdkLogin, googleSdkLogin, naverSdkLogin } from '../controllers/social.controller';
 import { authenticate } from '../middlewares/authenticate';
 
 const router = Router();
@@ -25,7 +26,6 @@ if (process.env.KAKAO_CLIENT_ID) {
   );
 }
 
-console.log('[ENV CHECK] GOOGLE_CLIENT_ID:', !!process.env.GOOGLE_CLIENT_ID, '/ KAKAO_CLIENT_ID:', !!process.env.KAKAO_CLIENT_ID, '/ NAVER_CLIENT_ID:', !!process.env.NAVER_CLIENT_ID);
 if (process.env.GOOGLE_CLIENT_ID) {
   passport.use(
     new GoogleStrategy(
@@ -269,6 +269,96 @@ router.get('/me', authenticate, getMe);
  *         description: 닉네임 중복
  */
 router.patch('/profile', authenticate, completeProfile);
+
+/**
+ * @swagger
+ * /auth/kakao/token:
+ *   post:
+ *     summary: 카카오 SDK 로그인
+ *     description: 카카오 SDK로 받은 accessToken으로 JWT를 발급합니다.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [accessToken]
+ *             properties:
+ *               accessToken:
+ *                 type: string
+ *                 example: eyJhbGci...
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenResponse'
+ *       401:
+ *         description: 유효하지 않은 토큰
+ */
+router.post('/kakao/token', kakaoSdkLogin);
+
+/**
+ * @swagger
+ * /auth/google/token:
+ *   post:
+ *     summary: 구글 SDK 로그인
+ *     description: Google Sign-In SDK로 받은 idToken으로 JWT를 발급합니다.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [idToken]
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *                 example: eyJhbGci...
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenResponse'
+ *       401:
+ *         description: 유효하지 않은 토큰
+ */
+router.post('/google/token', googleSdkLogin);
+
+/**
+ * @swagger
+ * /auth/naver/token:
+ *   post:
+ *     summary: 네이버 SDK 로그인
+ *     description: 네이버 SDK로 받은 accessToken으로 JWT를 발급합니다.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [accessToken]
+ *             properties:
+ *               accessToken:
+ *                 type: string
+ *                 example: eyJhbGci...
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenResponse'
+ *       401:
+ *         description: 유효하지 않은 토큰
+ */
+router.post('/naver/token', naverSdkLogin);
 
 /**
  * @swagger

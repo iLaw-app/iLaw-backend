@@ -19,8 +19,12 @@ if (process.env.KAKAO_CLIENT_ID) {
         callbackURL: process.env.KAKAO_CALLBACK_URL!,
       },
       async (_accessToken, _refreshToken, profile, done) => {
-        const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email);
-        done(null, user);
+        try {
+          const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email);
+          done(null, user);
+        } catch (err) {
+          done(err);
+        }
       }
     )
   );
@@ -35,9 +39,13 @@ if (process.env.GOOGLE_CLIENT_ID) {
         callbackURL: process.env.GOOGLE_CALLBACK_URL!,
       },
       async (_accessToken, _refreshToken, profile, done) => {
-        const email = profile.emails?.[0]?.value;
-        const user = await upsertUser('google', profile.id, email);
-        done(null, user);
+        try {
+          const email = profile.emails?.[0]?.value;
+          const user = await upsertUser('google', profile.id, email);
+          done(null, user);
+        } catch (err) {
+          done(err);
+        }
       }
     )
   );
@@ -52,8 +60,12 @@ if (process.env.NAVER_CLIENT_ID) {
         callbackURL: process.env.NAVER_CALLBACK_URL!,
       },
       async (_accessToken: string, _refreshToken: string, profile: { id: string; displayName: string; email?: string }, done: (err: unknown, user?: Express.User | false) => void) => {
-        const user = await upsertUser('naver', profile.id, profile.email);
-        done(null, user);
+        try {
+          const user = await upsertUser('naver', profile.id, profile.email);
+          done(null, user);
+        } catch (err) {
+          done(err);
+        }
       }
     )
   );

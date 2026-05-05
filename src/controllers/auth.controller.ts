@@ -9,13 +9,18 @@ import prisma from '../prisma/client';
 import { AuthRequest } from '../middlewares/authenticate';
 
 export async function handleSocialCallback(req: Request, res: Response) {
-  const user = req.user as { id: string; profileCompleted: boolean };
+  try {
+    const user = req.user as { id: string; profileCompleted: boolean };
 
-  const accessToken = generateAccessToken(user.id);
-  const refreshToken = generateRefreshToken(user.id);
-  await saveRefreshToken(user.id, refreshToken);
+    const accessToken = generateAccessToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+    await saveRefreshToken(user.id, refreshToken);
 
-  res.json({ accessToken, refreshToken, profileCompleted: user.profileCompleted });
+    const redirectUrl = `ilaw://auth?accessToken=${accessToken}&refreshToken=${refreshToken}&profileCompleted=${user.profileCompleted}`;
+    res.redirect(redirectUrl);
+  } catch {
+    res.status(500).json({ message: 'Login failed. Please try again.' });
+  }
 }
 
 export async function completeProfile(req: AuthRequest, res: Response) {
@@ -103,28 +108,42 @@ export async function refresh(req: Request, res: Response) {
 }
 
 export async function logout(req: AuthRequest, res: Response) {
-  await prisma.user.update({
-    where: { id: req.userId },
-    data: { refreshToken: null },
-  });
-  res.json({ message: 'Logged out' });
+  try {
+    await prisma.user.update({
+      where: { id: req.userId },
+      data: { refreshToken: null },
+    });
+    res.json({ message: 'Logged out' });
+  } catch {
+    res.status(500).json({ message: 'Logout failed. Please try again.' });
+  }
 }
 
 export async function getMe(req: AuthRequest, res: Response) {
-  const user = await prisma.user.findUnique({
-    where: { id: req.userId },
-    select: {
-      id: true,
-      email: true,
-      nickname: true,
-      region: true,
-      birthYear: true,
-      gender: true,
-      provider: true,
-      profileCompleted: true,
-      agreedMarketing: true,
-      createdAt: true,
-    },
-  });
-  res.json(user);
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: {
+        id: true,
+        email: true,
+        nickname: true,
+        region: true,
+        birthYear: true,
+        gender: true,
+        provider: true,
+        profileCompleted: true,
+        agreedMarketing: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    res.json(user);
+  } catch {
+    res.status(500).json({ message: 'Failed to fetch user info.' });
+  }
 }

@@ -5,6 +5,7 @@ import passport from 'passport';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger';
 import authRouter from './routes/auth';
+import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
 
@@ -18,6 +19,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+app.use(errorHandler);
 
 const PORT = process.env.PORT ?? 3000;
 app.listen(PORT, () => {

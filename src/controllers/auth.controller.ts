@@ -16,8 +16,18 @@ export async function handleSocialCallback(req: Request, res: Response) {
     const refreshToken = generateRefreshToken(user.id);
     await saveRefreshToken(user.id, refreshToken);
 
-    const redirectUrl = `ilaw://auth?accessToken=${accessToken}&refreshToken=${refreshToken}&profileCompleted=${user.profileCompleted}`;
-    res.redirect(redirectUrl);
+    const deepLink = `ilaw://auth?accessToken=${accessToken}&refreshToken=${refreshToken}&profileCompleted=${user.profileCompleted}`;
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head><meta charset="UTF-8"></head>
+      <body>
+        <script>
+          window.location.href = '${deepLink}';
+        </script>
+      </body>
+      </html>
+    `);
   } catch {
     res.status(500).json({ message: 'Login failed. Please try again.' });
   }

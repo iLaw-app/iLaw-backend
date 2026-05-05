@@ -12,11 +12,11 @@ export function generateRefreshToken(userId: string) {
   return jwt.sign({ userId }, REFRESH_SECRET, { expiresIn: '30d' });
 }
 
-export async function upsertUser(provider: string, providerId: string, email?: string, nickname?: string) {
+export async function upsertUser(provider: string, providerId: string, email?: string) {
   return prisma.user.upsert({
     where: { provider_providerId: { provider, providerId } },
-    update: { email, nickname },
-    create: { provider, providerId, email, nickname },
+    update: { email },
+    create: { provider, providerId, email },
   });
 }
 

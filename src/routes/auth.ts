@@ -4,7 +4,7 @@ import { Strategy as KakaoStrategy } from 'passport-kakao';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as NaverStrategy } from 'passport-naver-v2';
 import { upsertUser } from '../services/auth.service';
-import { handleSocialCallback, refresh, logout, getMe } from '../controllers/auth.controller';
+import { handleSocialCallback, refresh, logout, getMe, completeProfile } from '../controllers/auth.controller';
 import { authenticate } from '../middlewares/authenticate';
 
 const router = Router();
@@ -18,7 +18,7 @@ if (process.env.KAKAO_CLIENT_ID) {
         callbackURL: process.env.KAKAO_CALLBACK_URL!,
       },
       async (_accessToken, _refreshToken, profile, done) => {
-        const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email, profile.displayName);
+        const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email);
         done(null, user);
       }
     )
@@ -35,7 +35,7 @@ if (process.env.GOOGLE_CLIENT_ID) {
       },
       async (_accessToken, _refreshToken, profile, done) => {
         const email = profile.emails?.[0]?.value;
-        const user = await upsertUser('google', profile.id, email, profile.displayName);
+        const user = await upsertUser('google', profile.id, email);
         done(null, user);
       }
     )
@@ -51,7 +51,7 @@ if (process.env.NAVER_CLIENT_ID) {
         callbackURL: process.env.NAVER_CALLBACK_URL!,
       },
       async (_accessToken: string, _refreshToken: string, profile: { id: string; displayName: string; email?: string }, done: (err: unknown, user?: Express.User | false) => void) => {
-        const user = await upsertUser('naver', profile.id, profile.email, profile.displayName);
+        const user = await upsertUser('naver', profile.id, profile.email);
         done(null, user);
       }
     )
@@ -100,6 +100,22 @@ router.get('/kakao/callback', passport.authenticate('kakao', { session: false })
  *         description: 구글 로그인 페이지로 리다이렉트
  */
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+/**
+ * @swagger
+ * /auth/google/callback:
+ *   get:
+ *     summary: 구글 로그인 콜백
+ *     description: 구글 로그인 완료 후 JWT 토큰을 반환합니다.
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenResponse'
+ */
 router.get('/google/callback', passport.authenticate('google', { session: false }), handleSocialCallback);
 
 /**
@@ -114,6 +130,22 @@ router.get('/google/callback', passport.authenticate('google', { session: false 
  *         description: 네이버 로그인 페이지로 리다이렉트
  */
 router.get('/naver', passport.authenticate('naver'));
+
+/**
+ * @swagger
+ * /auth/naver/callback:
+ *   get:
+ *     summary: 네이버 로그인 콜백
+ *     description: 네이버 로그인 완료 후 JWT 토큰을 반환합니다.
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: 로그인 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenResponse'
+ */
 router.get('/naver/callback', passport.authenticate('naver', { session: false }), handleSocialCallback);
 
 /**
@@ -185,6 +217,60 @@ router.get('/me', authenticate, getMe);
 
 /**
  * @swagger
+ * /auth/profile:
+ *   patch:
+ *     summary: 온보딩 - 추가 정보 입력 및 약관 동의
+ *     description: 소셜 로그인 후 닉네임, 지역, 출생연도, 성별, 약관 동의를 저장하고 profileCompleted를 true로 변경합니다.
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - nickname
+ *               - region
+ *               - birthYear
+ *               - gender
+ *               - agreedTermsOfService
+ *               - agreedPrivacyPolicy
+ *               - agreedAge14
+ *             properties:
+ *               nickname:
+ *                 type: string
+ *                 example: 홍길동
+ *               region:
+ *                 type: string
+ *                 example: 서울특별시
+ *               birthYear:
+ *                 type: integer
+ *                 example: 1995
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other]
+ *               agreedTermsOfService:
+ *                 type: boolean
+ *               agreedPrivacyPolicy:
+ *                 type: boolean
+ *               agreedAge14:
+ *                 type: boolean
+ *               agreedMarketing:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: 프로필 업데이트 성공
+ *       400:
+ *         description: 필수 필드 누락 또는 유효하지 않은 값
+ *       409:
+ *         description: 닉네임 중복
+ */
+router.patch('/profile', authenticate, completeProfile);
+
+/**
+ * @swagger
  * components:
  *   schemas:
  *     TokenResponse:
@@ -196,6 +282,10 @@ router.get('/me', authenticate, getMe);
  *         refreshToken:
  *           type: string
  *           example: eyJhbGci...
+ *         profileCompleted:
+ *           type: boolean
+ *           description: 온보딩(추가 정보 입력) 완료 여부. false인 경우 PATCH /auth/profile 호출 필요
+ *           example: false
  *     User:
  *       type: object
  *       properties:
@@ -204,13 +294,34 @@ router.get('/me', authenticate, getMe);
  *           example: cmorkvmmx0000139yevgthkpz
  *         email:
  *           type: string
+ *           nullable: true
  *           example: user@example.com
  *         nickname:
  *           type: string
+ *           nullable: true
  *           example: 홍길동
+ *         region:
+ *           type: string
+ *           nullable: true
+ *           example: 서울특별시
+ *         birthYear:
+ *           type: integer
+ *           nullable: true
+ *           example: 1995
+ *         gender:
+ *           type: string
+ *           enum: [male, female, other]
+ *           nullable: true
  *         provider:
  *           type: string
+ *           enum: [kakao, google, naver]
  *           example: kakao
+ *         profileCompleted:
+ *           type: boolean
+ *           example: true
+ *         agreedMarketing:
+ *           type: boolean
+ *           example: false
  *         createdAt:
  *           type: string
  *           format: date-time

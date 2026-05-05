@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "db:migrate": "prisma migrate dev",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "docs:build": "ts-node src/generate-spec.ts"
   },
   "keywords": [],
   "author": "",

@@ -12,7 +12,20 @@ model User {
   provider     String
   providerId   String
   email        String?
-  nickname     String?
+
+  nickname  String? @unique
+  region    String?
+  birthYear Int?
+  gender    String?
+
+  agreedTermsOfService Boolean   @default(false)
+  agreedPrivacyPolicy  Boolean   @default(false)
+  agreedAge14          Boolean   @default(false)
+  agreedMarketing      Boolean   @default(false)
+  agreedAt             DateTime?
+
+  profileCompleted Boolean @default(false)
+
   refreshToken String?
   createdAt    DateTime @default(now())
 

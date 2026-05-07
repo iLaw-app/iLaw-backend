@@ -32,7 +32,7 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "npm run build",
+    "buildCommand": "cd \"/Users/taknayeon/Development/Projects/iLaw-backend\" && npx tsc --noEmit 2>&1",
     "testCommand": null,
     "lintCommand": null,
     "devCommand": "npm run dev",

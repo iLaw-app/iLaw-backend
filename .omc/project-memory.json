@@ -178,6 +178,13 @@
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "src/generate-spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1778139572222,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }

@@ -31,3 +31,37 @@ model User {
 
   @@unique([provider, providerId])
 }
+
+model ManualCategory {
+  id        Int             @id @default(autoincrement())
+  name      String          @unique
+  slug      String          @unique
+  order     Int             @default(0)
+  articles  ManualArticle[]
+  agencies  Agency[]
+  createdAt DateTime        @default(now())
+}
+
+model ManualArticle {
+  id         Int            @id @default(autoincrement())
+  category   ManualCategory @relation(fields: [categoryId], references: [id])
+  categoryId Int
+  question   String
+  summary    String?
+  content    String
+  order      Int            @default(0)
+  createdAt  DateTime       @default(now())
+}
+
+model Agency {
+  id         Int            @id @default(autoincrement())
+  category   ManualCategory @relation(fields: [categoryId], references: [id])
+  categoryId Int
+  region     String
+  name       String
+  role       String
+  contact    String
+  createdAt  DateTime       @default(now())
+
+  @@index([categoryId, region])
+}

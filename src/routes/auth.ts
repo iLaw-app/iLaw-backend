@@ -99,7 +99,15 @@ router.get('/kakao', passport.authenticate('kakao'));
  *             schema:
  *               $ref: '#/components/schemas/TokenResponse'
  */
-router.get('/kakao/callback', passport.authenticate('kakao', { session: false }), handleSocialCallback);
+router.get('/kakao/callback', (req, res, next) => {
+  passport.authenticate('kakao', { session: false }, (err: unknown, user: Express.User | false) => {
+    if (err || !user) {
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+    }
+    req.user = user;
+    next();
+  })(req, res, next);
+}, handleSocialCallback);
 
 /**
  * @swagger
@@ -129,7 +137,15 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
  *             schema:
  *               $ref: '#/components/schemas/TokenResponse'
  */
-router.get('/google/callback', passport.authenticate('google', { session: false }), handleSocialCallback);
+router.get('/google/callback', (req, res, next) => {
+  passport.authenticate('google', { session: false }, (err: unknown, user: Express.User | false) => {
+    if (err || !user) {
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+    }
+    req.user = user;
+    next();
+  })(req, res, next);
+}, handleSocialCallback);
 
 /**
  * @swagger
@@ -159,7 +175,15 @@ router.get('/naver', passport.authenticate('naver'));
  *             schema:
  *               $ref: '#/components/schemas/TokenResponse'
  */
-router.get('/naver/callback', passport.authenticate('naver', { session: false }), handleSocialCallback);
+router.get('/naver/callback', (req, res, next) => {
+  passport.authenticate('naver', { session: false }, (err: unknown, user: Express.User | false) => {
+    if (err || !user) {
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+    }
+    req.user = user;
+    next();
+  })(req, res, next);
+}, handleSocialCallback);
 
 /**
  * @swagger

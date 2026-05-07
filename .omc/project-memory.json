@@ -1,0 +1,183 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1778075123927,
+  "projectRoot": "/Users/taknayeon/Development/Projects/iLaw-backend",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "express",
+        "version": "5.2.1",
+        "category": "backend"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "nodemon --exec ts-node src/app.ts",
+      "build": "tsc",
+      "start": "node dist/app.js",
+      "db:migrate": "prisma migrate dev",
+      "db:generate": "prisma generate",
+      "docs:build": "ts-node src/generate-spec.ts"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": "ES modules",
+    "testPattern": null,
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 9,
+      "lastAccessed": 1778075123914,
+      "keyFiles": [
+        "app.d.ts",
+        "app.js",
+        "app.js.map",
+        "generate-spec.d.ts",
+        "generate-spec.js"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1778075123915,
+      "keyFiles": [
+        "index.html",
+        "openapi.json"
+      ]
+    },
+    "prisma": {
+      "path": "prisma",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1778075123915,
+      "keyFiles": [
+        "schema.prisma"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1778075123917,
+      "keyFiles": [
+        "app.ts",
+        "generate-spec.ts",
+        "swagger.ts"
+      ]
+    },
+    "dist/controllers": {
+      "path": "dist/controllers",
+      "purpose": "Controllers",
+      "fileCount": 6,
+      "lastAccessed": 1778075123917,
+      "keyFiles": [
+        "auth.controller.d.ts",
+        "auth.controller.js",
+        "auth.controller.js.map"
+      ]
+    },
+    "dist/routes": {
+      "path": "dist/routes",
+      "purpose": "Route handlers",
+      "fileCount": 3,
+      "lastAccessed": 1778075123918,
+      "keyFiles": [
+        "auth.d.ts",
+        "auth.js",
+        "auth.js.map"
+      ]
+    },
+    "prisma/migrations": {
+      "path": "prisma/migrations",
+      "purpose": "Database migrations",
+      "fileCount": 1,
+      "lastAccessed": 1778075123918,
+      "keyFiles": [
+        "migration_lock.toml"
+      ]
+    },
+    "src/controllers": {
+      "path": "src/controllers",
+      "purpose": "Controllers",
+      "fileCount": 2,
+      "lastAccessed": 1778075123918,
+      "keyFiles": [
+        "auth.controller.ts",
+        "social.controller.ts"
+      ]
+    },
+    "src/routes": {
+      "path": "src/routes",
+      "purpose": "Route handlers",
+      "fileCount": 1,
+      "lastAccessed": 1778075123919,
+      "keyFiles": [
+        "auth.ts"
+      ]
+    },
+    "src/services": {
+      "path": "src/services",
+      "purpose": "Business logic services",
+      "fileCount": 1,
+      "lastAccessed": 1778075123919,
+      "keyFiles": [
+        "auth.service.ts"
+      ]
+    },
+    "src/types": {
+      "path": "src/types",
+      "purpose": "Type definitions",
+      "fileCount": 2,
+      "lastAccessed": 1778075123919,
+      "keyFiles": [
+        "passport-kakao.d.ts",
+        "passport-naver-v2.d.ts"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"psql \\\"postgresql://postgres:dLfpygWAgwCKyNvUjtgAeAQdsGgzRgas@trolley.proxy.rlwy.net:40730/railway\\\" -c \\\"SELECT 1\\\" 2>&1\",\"timeout\":15000,\"description\":\"Test direct psql connection to Rai...",
+  "error": "Exit code 2\npsql: error: connection to server at \"trolley.proxy.rlwy.net\" (66.33.22.236), port 40730 failed: server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n\tbefore or while processing the request.",
+  "timestamp": "2026-05-07T07:48:36.465Z",
+  "retry_count": 1
+}

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listCategories, listArticles, getArticle, listAgencies } from '../controllers/manual.controller';
+import { listCategories, listArticles, getArticle, listAgencies, searchArticles } from '../controllers/manual.controller';
 
 const router = Router();
 
@@ -19,6 +19,7 @@ const router = Router();
  *               items:
  *                 $ref: '#/components/schemas/ManualCategory'
  */
+router.get('/search', searchArticles);
 router.get('/categories', listCategories);
 
 /**

@@ -22,6 +22,25 @@ export async function getArticleById(id: number) {
   });
 }
 
+export async function searchManualArticles(query: string) {
+  return prisma.manualArticle.findMany({
+    where: {
+      OR: [
+        { question: { contains: query, mode: 'insensitive' } },
+        { summary: { contains: query, mode: 'insensitive' } },
+        { content: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    select: {
+      id: true,
+      question: true,
+      summary: true,
+      category: { select: { name: true, slug: true } },
+    },
+    take: 20,
+  });
+}
+
 export async function getAgencies(slug: string, region?: string) {
   return prisma.agency.findMany({
     where: {

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getCategories, getArticlesByCategory, getArticleById, getAgencies } from '../services/manual.service';
+import { getCategories, getArticlesByCategory, getArticleById, getAgencies, searchManualArticles } from '../services/manual.service';
 
 export async function listCategories(_req: Request, res: Response) {
   const categories = await getCategories();
@@ -28,6 +28,13 @@ export async function getArticle(req: Request, res: Response) {
     return;
   }
   res.json(article);
+}
+
+export async function searchArticles(req: Request, res: Response) {
+  const q = req.query.q as string;
+  if (!q?.trim()) { res.json([]); return; }
+  const results = await searchManualArticles(q.trim());
+  res.json(results);
 }
 
 export async function listAgencies(req: Request, res: Response) {

@@ -20,6 +20,7 @@ const router = Router();
  *                 $ref: '#/components/schemas/ManualCategory'
  */
 router.get('/search', searchArticles);
+
 router.get('/categories', listCategories);
 
 /**

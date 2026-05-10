@@ -199,9 +199,21 @@
       "type": "file"
     },
     {
+      "path": "src/routes/manual.ts",
+      "accessCount": 4,
+      "lastAccessed": 1778404477984,
+      "type": "file"
+    },
+    {
       "path": "src/controllers/auth.controller.ts",
       "accessCount": 3,
       "lastAccessed": 1778402598828,
+      "type": "file"
+    },
+    {
+      "path": "src/controllers/manual.controller.ts",
+      "accessCount": 2,
+      "lastAccessed": 1778404023016,
       "type": "file"
     },
     {
@@ -268,6 +280,12 @@
       "path": "src/swagger.ts",
       "accessCount": 1,
       "lastAccessed": 1778402180853,
+      "type": "file"
+    },
+    {
+      "path": "src/services/manual.service.ts",
+      "accessCount": 1,
+      "lastAccessed": 1778404018037,
       "type": "file"
     }
   ],

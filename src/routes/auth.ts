@@ -10,6 +10,17 @@ import { authenticate } from '../middlewares/authenticate';
 
 const router = Router();
 
+function parseRedirectUri(state?: string): string | undefined {
+  if (!state) return undefined;
+  try {
+    const { redirectUri } = JSON.parse(Buffer.from(state, 'base64').toString());
+    if (typeof redirectUri === 'string' && (redirectUri.startsWith('ilaw://auth') || redirectUri.startsWith('exp://'))) {
+      return redirectUri;
+    }
+  } catch {}
+  return undefined;
+}
+
 if (process.env.KAKAO_CLIENT_ID) {
   passport.use(
     new KakaoStrategy(
@@ -82,7 +93,11 @@ if (process.env.NAVER_CLIENT_ID) {
  *       302:
  *         description: 카카오 로그인 페이지로 리다이렉트
  */
-router.get('/kakao', passport.authenticate('kakao'));
+router.get('/kakao', (req, res, next) => {
+  const redirectUri = req.query.redirectUri as string | undefined;
+  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
+  passport.authenticate('kakao', { state } as object)(req, res, next);
+});
 
 /**
  * @swagger
@@ -102,9 +117,11 @@ router.get('/kakao', passport.authenticate('kakao'));
 router.get('/kakao/callback', (req, res, next) => {
   passport.authenticate('kakao', { session: false }, (err: unknown, user: Express.User | false) => {
     if (err || !user) {
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
     }
     req.user = user;
+    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
     next();
   })(req, res, next);
 }, handleSocialCallback);
@@ -120,7 +137,11 @@ router.get('/kakao/callback', (req, res, next) => {
  *       302:
  *         description: 구글 로그인 페이지로 리다이렉트
  */
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google', (req, res, next) => {
+  const redirectUri = req.query.redirectUri as string | undefined;
+  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
+  passport.authenticate('google', { scope: ['profile', 'email'], state } as object)(req, res, next);
+});
 
 /**
  * @swagger
@@ -140,9 +161,11 @@ router.get('/google', passport.authenticate('google', { scope: ['profile', 'emai
 router.get('/google/callback', (req, res, next) => {
   passport.authenticate('google', { session: false }, (err: unknown, user: Express.User | false) => {
     if (err || !user) {
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
     }
     req.user = user;
+    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
     next();
   })(req, res, next);
 }, handleSocialCallback);
@@ -158,7 +181,11 @@ router.get('/google/callback', (req, res, next) => {
  *       302:
  *         description: 네이버 로그인 페이지로 리다이렉트
  */
-router.get('/naver', passport.authenticate('naver'));
+router.get('/naver', (req, res, next) => {
+  const redirectUri = req.query.redirectUri as string | undefined;
+  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
+  passport.authenticate('naver', { state } as object)(req, res, next);
+});
 
 /**
  * @swagger
@@ -178,9 +205,11 @@ router.get('/naver', passport.authenticate('naver'));
 router.get('/naver/callback', (req, res, next) => {
   passport.authenticate('naver', { session: false }, (err: unknown, user: Express.User | false) => {
     if (err || !user) {
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='ilaw://auth?error=login_failed';</script></body></html>`);
+      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
+      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
     }
     req.user = user;
+    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
     next();
   })(req, res, next);
 }, handleSocialCallback);

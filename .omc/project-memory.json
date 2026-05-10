@@ -194,8 +194,8 @@
   "hotPaths": [
     {
       "path": "src/routes/auth.ts",
-      "accessCount": 10,
-      "lastAccessed": 1778402625859,
+      "accessCount": 12,
+      "lastAccessed": 1778415131363,
       "type": "file"
     },
     {
@@ -205,9 +205,15 @@
       "type": "file"
     },
     {
+      "path": "CLAUDE.md",
+      "accessCount": 4,
+      "lastAccessed": 1778414774094,
+      "type": "file"
+    },
+    {
       "path": "src/controllers/auth.controller.ts",
-      "accessCount": 3,
-      "lastAccessed": 1778402598828,
+      "accessCount": 4,
+      "lastAccessed": 1778415122466,
       "type": "file"
     },
     {

@@ -4,7 +4,7 @@ import { Strategy as KakaoStrategy } from 'passport-kakao';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as NaverStrategy } from 'passport-naver-v2';
 import { upsertUser } from '../services/auth.service';
-import { handleSocialCallback, refresh, logout, getMe, completeProfile } from '../controllers/auth.controller';
+import { handleSocialCallback, refresh, logout, getMe, completeProfile, deleteAccount } from '../controllers/auth.controller';
 import { kakaoSdkLogin, googleSdkLogin, naverSdkLogin } from '../controllers/social.controller';
 import { authenticate } from '../middlewares/authenticate';
 
@@ -334,6 +334,7 @@ router.get('/me', authenticate, getMe);
  *         description: 닉네임 중복
  */
 router.patch('/profile', authenticate, completeProfile);
+router.delete('/me', authenticate, deleteAccount);
 
 /**
  * @swagger

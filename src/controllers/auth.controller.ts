@@ -120,6 +120,15 @@ export async function logout(req: AuthRequest, res: Response) {
   }
 }
 
+export async function deleteAccount(req: AuthRequest, res: Response) {
+  try {
+    await prisma.user.delete({ where: { id: req.userId } });
+    res.json({ message: 'Account deleted' });
+  } catch {
+    res.status(500).json({ message: 'Failed to delete account.' });
+  }
+}
+
 export async function getMe(req: AuthRequest, res: Response) {
   try {
     const user = await prisma.user.findUnique({

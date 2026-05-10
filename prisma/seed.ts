@@ -10,7 +10,7 @@ const AGENCIES_DIR = path.join(DATA_DIR, 'agencies');
 
 const CATEGORY_CONFIG: Record<string, { slug: string; order: number; agencyCsv?: string }> = {
   '금융(빚 사기 도박)': { slug: 'finance', order: 1, agencyCsv: '금융.csv' },
-  '노동': { slug: 'labor', order: 2 },
+  '노동': { slug: 'labor', order: 2, agencyCsv: '노동.csv' },
   '성폭력 데이트폭력 성착취': { slug: 'sexual-violence', order: 3, agencyCsv: '성폭력.csv' },
   '아동학대': { slug: 'child-abuse', order: 4, agencyCsv: '아동학대.csv' },
   '온라인폭력': { slug: 'online-violence', order: 5, agencyCsv: '온라인폭력.csv' },

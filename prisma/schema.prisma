@@ -50,7 +50,6 @@ model ManualArticle {
   summary    String?
   content    String
   order      Int            @default(0)
-  createdAt  DateTime       @default(now())
 }
 
 model Agency {

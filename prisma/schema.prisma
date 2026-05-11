@@ -12,6 +12,7 @@ model User {
   provider     String
   providerId   String
   email        String?
+  role         String   @default("user")
 
   nickname  String? @unique
   region    String?
@@ -28,6 +29,10 @@ model User {
 
   refreshToken String?
   createdAt    DateTime @default(now())
+
+  qnaPosts      QnAPost[]
+  qnaAnswers    QnAAnswer[]
+  articleScraps ArticleScrap[]
 
   @@unique([provider, providerId])
 }
@@ -50,6 +55,7 @@ model ManualArticle {
   summary    String?
   content    String
   order      Int            @default(0)
+  scraps     ArticleScrap[]
 }
 
 model Agency {
@@ -63,4 +69,39 @@ model Agency {
   createdAt  DateTime       @default(now())
 
   @@index([categoryId, region])
+}
+
+model QnAPost {
+  id        Int        @id @default(autoincrement())
+  author    User       @relation(fields: [authorId], references: [id])
+  authorId  String
+  title     String
+  content   String
+  category  String
+  status    String     @default("pending")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  answer    QnAAnswer?
+}
+
+model QnAAnswer {
+  id        Int      @id @default(autoincrement())
+  post      QnAPost  @relation(fields: [postId], references: [id])
+  postId    Int      @unique
+  lawyer    User     @relation(fields: [lawyerId], references: [id])
+  lawyerId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ArticleScrap {
+  id        Int           @id @default(autoincrement())
+  user      User          @relation(fields: [userId], references: [id])
+  userId    String
+  article   ManualArticle @relation(fields: [articleId], references: [id])
+  articleId Int
+  createdAt DateTime      @default(now())
+
+  @@unique([userId, articleId])
 }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { listCategories, listArticles, getArticle, listAgencies, searchArticles } from '../controllers/manual.controller';
+import { listCategories, listArticles, getArticle, listAgencies, searchArticles, scrapArticle, getScrapStatus, getMyScraps } from '../controllers/manual.controller';
+import { authenticate } from '../middlewares/authenticate';
 
 const router = Router();
 
@@ -105,6 +106,10 @@ router.get('/articles/:id', getArticle);
  *                 $ref: '#/components/schemas/Agency'
  */
 router.get('/categories/:slug/agencies', listAgencies);
+
+router.get('/my-scraps', authenticate, getMyScraps);
+router.post('/articles/:id/scrap', authenticate, scrapArticle);
+router.get('/articles/:id/scrap', authenticate, getScrapStatus);
 
 /**
  * @swagger

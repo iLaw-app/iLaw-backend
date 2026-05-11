@@ -6,6 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger';
 import authRouter from './routes/auth';
 import manualRouter from './routes/manual';
+import qnaRouter from './routes/qna';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -16,6 +17,7 @@ app.use(passport.initialize());
 
 app.use('/auth', authRouter);
 app.use('/manual', manualRouter);
+app.use('/qna', qnaRouter);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {

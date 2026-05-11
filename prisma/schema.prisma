@@ -12,8 +12,6 @@ model User {
   provider     String
   providerId   String
   email        String?
-  role         String   @default("user")
-
   nickname  String? @unique
   region    String?
   birthYear Int?

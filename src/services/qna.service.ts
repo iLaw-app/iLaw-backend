@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
 import { getEmbedding } from './embedding.service';
+import { expandQuery } from './synonyms';
 
 export async function listQnAPosts() {
   return prisma.qnAPost.findMany({
@@ -54,7 +55,7 @@ type QnASearchRow = {
 };
 
 export async function searchQnAPosts(query: string) {
-  const embedding = await getEmbedding(query);
+  const embedding = await getEmbedding(expandQuery(query));
   const vectorStr = `[${embedding.join(',')}]`;
 
   const rows = await prisma.$queryRaw<QnASearchRow[]>(

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
 import { getEmbedding } from './embedding.service';
+import { expandQuery } from './synonyms';
 
 export async function getCategories() {
   return prisma.manualCategory.findMany({
@@ -33,7 +34,7 @@ type ArticleSearchRow = {
 };
 
 export async function searchManualArticles(query: string) {
-  const embedding = await getEmbedding(query);
+  const embedding = await getEmbedding(expandQuery(query));
   const vectorStr = `[${embedding.join(',')}]`;
 
   const rows = await prisma.$queryRaw<ArticleSearchRow[]>(

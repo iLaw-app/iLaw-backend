@@ -28,9 +28,9 @@ export async function getQnAPost(id: number) {
   });
 }
 
-export async function createQnAPost(authorId: string, title: string, content: string, category: string) {
+export async function createQnAPost(authorId: string, title: string, content: string, category: string, imageUrls: string[] = []) {
   return prisma.qnAPost.create({
-    data: { authorId, title, content, category },
+    data: { authorId, title, content, category, imageUrls },
   });
 }
 

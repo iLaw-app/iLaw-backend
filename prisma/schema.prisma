@@ -74,10 +74,11 @@ model QnAPost {
   id        Int        @id @default(autoincrement())
   author    User       @relation(fields: [authorId], references: [id])
   authorId  String
-  title     String
-  content   String
-  category  String
-  status    String     @default("pending")
+  title      String
+  content    String
+  category   String
+  status     String     @default("pending")
+  imageUrls  String[]   @default([])
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   answer    QnAAnswer?

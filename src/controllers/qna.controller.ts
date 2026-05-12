@@ -22,12 +22,12 @@ export async function listMyPosts(req: AuthRequest, res: Response) {
 }
 
 export async function createPost(req: AuthRequest, res: Response) {
-  const { title, content, category } = req.body as { title?: string; content?: string; category?: string };
+  const { title, content, category, imageUrls } = req.body as { title?: string; content?: string; category?: string; imageUrls?: string[] };
   if (!title?.trim() || !content?.trim() || !category?.trim()) {
     res.status(400).json({ message: 'title, content, category are required' });
     return;
   }
-  const post = await createQnAPost(req.userId!, title, content, category);
+  const post = await createQnAPost(req.userId!, title, content, category, imageUrls ?? []);
   res.status(201).json(post);
 }
 

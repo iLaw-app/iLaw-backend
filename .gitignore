@@ -4,3 +4,4 @@ dist/
 /generated/prisma
 .claude/
 CLAUDE.md
+.omc/

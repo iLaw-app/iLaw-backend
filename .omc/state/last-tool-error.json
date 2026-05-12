@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"git rebase --continue\"}",
-  "error": "Exit code 1\n모든 병합 충돌을 편집하고 git add\n명령으로 해결되었다고 표시해야 합니다",
-  "timestamp": "2026-05-10T09:14:49.304Z",
-  "retry_count": 2
-}

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
 import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer } from '../services/qna.service';
 import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
+import { createNotificationsForLawyers } from '../services/notification.service';
 import prisma from '../prisma/client';
 
 export async function listPosts(_req: AuthRequest, res: Response) {
@@ -29,6 +30,7 @@ export async function createPost(req: AuthRequest, res: Response) {
     return;
   }
   const post = await createQnAPost(req.userId!, title, content, category, imageUrls ?? []);
+  createNotificationsForLawyers('new_question', '새로운 질문이 등록됐습니다!', title, post.id).catch(() => {});
   res.status(201).json(post);
 }
 

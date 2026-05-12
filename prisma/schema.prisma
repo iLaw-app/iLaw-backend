@@ -33,6 +33,7 @@ model User {
   qnaAnswers    QnAAnswer[]
   articleScraps ArticleScrap[]
   qnaScraps     QnAScrap[]
+  notifications Notification[]
 
   @@unique([provider, providerId])
 }
@@ -106,6 +107,18 @@ model QnAScrap {
   createdAt DateTime @default(now())
 
   @@unique([userId, postId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  type      String
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  refId     Int?
+  createdAt DateTime @default(now())
 }
 
 model ArticleScrap {

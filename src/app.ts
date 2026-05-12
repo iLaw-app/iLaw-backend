@@ -8,6 +8,7 @@ import authRouter from './routes/auth';
 import manualRouter from './routes/manual';
 import qnaRouter from './routes/qna';
 import uploadRouter from './routes/upload';
+import notificationsRouter from './routes/notifications';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -20,6 +21,7 @@ app.use('/auth', authRouter);
 app.use('/manual', manualRouter);
 app.use('/qna', qnaRouter);
 app.use('/upload', uploadRouter);
+app.use('/notifications', notificationsRouter);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {

@@ -43,9 +43,8 @@ export async function searchManualArticles(query: string) {
       FROM "ManualArticle" a
       JOIN "ManualCategory" c ON c.id = a."categoryId"
       WHERE a.embedding IS NOT NULL
-        AND a.embedding <=> ${vectorStr}::vector < 0.7
       ORDER BY a.embedding <=> ${vectorStr}::vector
-      LIMIT 10
+      LIMIT 3
     `
   );
 

@@ -163,6 +163,43 @@ export async function getMe(req: AuthRequest, res: Response) {
   }
 }
 
+export async function updateProfile(req: AuthRequest, res: Response) {
+  const { nickname, region, birthYear, gender } = req.body as {
+    nickname?: string;
+    region?: string;
+    birthYear?: number;
+    gender?: string;
+  };
+
+  if (!nickname || !region || !birthYear || !gender) {
+    res.status(400).json({ message: 'nickname, region, birthYear, gender are required' });
+    return;
+  }
+  if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
+    res.status(400).json({ message: '아이디는 영어, 숫자, _만 사용 가능합니다.' });
+    return;
+  }
+  if (!['male', 'female', 'other'].includes(gender)) {
+    res.status(400).json({ message: 'gender must be male, female, or other' });
+    return;
+  }
+
+  try {
+    const updated = await prisma.user.update({
+      where: { id: req.userId },
+      data: { nickname, region, birthYear, gender },
+      select: { id: true, nickname: true, region: true, birthYear: true, gender: true },
+    });
+    res.json(updated);
+  } catch (e: unknown) {
+    if (typeof e === 'object' && e !== null && 'code' in e && (e as { code: string }).code === 'P2002') {
+      res.status(409).json({ message: 'nickname already taken' });
+      return;
+    }
+    throw e;
+  }
+}
+
 export async function devSetRole(req: AuthRequest, res: Response) {
   const { role } = req.body as { role?: string };
   if (role !== 'user' && role !== 'lawyer') {

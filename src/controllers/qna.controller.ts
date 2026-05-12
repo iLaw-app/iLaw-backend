@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
 import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer } from '../services/qna.service';
+import prisma from '../prisma/client';
 
 export async function listPosts(_req: AuthRequest, res: Response) {
   const posts = await listQnAPosts();
@@ -35,6 +36,11 @@ export async function createAnswer(req: AuthRequest, res: Response) {
   const { content } = req.body as { content?: string };
   if (isNaN(postId) || !content?.trim()) {
     res.status(400).json({ message: 'postId and content are required' });
+    return;
+  }
+  const user = await prisma.user.findUnique({ where: { id: req.userId! }, select: { role: true } });
+  if (user?.role !== 'lawyer') {
+    res.status(403).json({ message: 'Only lawyers can answer' });
     return;
   }
   const existing = await getQnAPost(postId);

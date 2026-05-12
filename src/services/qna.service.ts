@@ -64,8 +64,9 @@ export async function searchQnAPosts(query: string) {
       FROM "QnAPost" p
       JOIN "User" u ON u.id = p."authorId"
       WHERE p.embedding IS NOT NULL
+        AND p.embedding <=> ${vectorStr}::vector < 0.65
       ORDER BY p.embedding <=> ${vectorStr}::vector
-      LIMIT 3
+      LIMIT 10
     `
   );
 

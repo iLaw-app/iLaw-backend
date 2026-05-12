@@ -33,21 +33,33 @@ type ArticleSearchRow = {
   category_slug: string;
 };
 
-export async function searchManualArticles(query: string) {
+export async function searchManualArticles(query: string, categorySlug?: string) {
   const embedding = await getEmbedding(expandQuery(query));
   const vectorStr = `[${embedding.join(',')}]`;
 
   const rows = await prisma.$queryRaw<ArticleSearchRow[]>(
-    Prisma.sql`
-      SELECT a.id, a.question, a.summary,
-             c.name AS category_name, c.slug AS category_slug
-      FROM "ManualArticle" a
-      JOIN "ManualCategory" c ON c.id = a."categoryId"
-      WHERE a.embedding IS NOT NULL
-        AND a.embedding <=> ${vectorStr}::vector < 0.65
-      ORDER BY a.embedding <=> ${vectorStr}::vector
-      LIMIT 10
-    `
+    categorySlug
+      ? Prisma.sql`
+          SELECT a.id, a.question, a.summary,
+                 c.name AS category_name, c.slug AS category_slug
+          FROM "ManualArticle" a
+          JOIN "ManualCategory" c ON c.id = a."categoryId"
+          WHERE a.embedding IS NOT NULL
+            AND c.slug = ${categorySlug}
+            AND a.embedding <=> ${vectorStr}::vector < 0.65
+          ORDER BY a.embedding <=> ${vectorStr}::vector
+          LIMIT 10
+        `
+      : Prisma.sql`
+          SELECT a.id, a.question, a.summary,
+                 c.name AS category_name, c.slug AS category_slug
+          FROM "ManualArticle" a
+          JOIN "ManualCategory" c ON c.id = a."categoryId"
+          WHERE a.embedding IS NOT NULL
+            AND a.embedding <=> ${vectorStr}::vector < 0.65
+          ORDER BY a.embedding <=> ${vectorStr}::vector
+          LIMIT 10
+        `
   );
 
   return rows.map((r) => ({

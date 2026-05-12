@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
 import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer } from '../services/qna.service';
+import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
 import prisma from '../prisma/client';
 
 export async function listPosts(_req: AuthRequest, res: Response) {
@@ -29,6 +30,25 @@ export async function createPost(req: AuthRequest, res: Response) {
   }
   const post = await createQnAPost(req.userId!, title, content, category, imageUrls ?? []);
   res.status(201).json(post);
+}
+
+export async function scrapPost(req: AuthRequest, res: Response) {
+  const postId = parseInt(req.params.id as string);
+  if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const result = await toggleQnAScrap(req.userId!, postId);
+  res.json(result);
+}
+
+export async function getScrapStatus(req: AuthRequest, res: Response) {
+  const postId = parseInt(req.params.id as string);
+  if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const result = await getQnAScrapStatus(req.userId!, postId);
+  res.json(result);
+}
+
+export async function getMyQnAScraps(req: AuthRequest, res: Response) {
+  const posts = await getUserQnAScraps(req.userId!);
+  res.json(posts);
 }
 
 export async function createAnswer(req: AuthRequest, res: Response) {

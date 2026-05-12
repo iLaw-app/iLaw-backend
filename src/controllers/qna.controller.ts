@@ -1,9 +1,16 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer } from '../services/qna.service';
+import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer, embedQnAPost, searchQnAPosts } from '../services/qna.service';
 import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 import prisma from '../prisma/client';
+
+export async function searchPosts(req: AuthRequest, res: Response) {
+  const q = (req.query.q as string)?.trim();
+  if (!q) { res.json([]); return; }
+  const results = await searchQnAPosts(q);
+  res.json(results);
+}
 
 export async function listPosts(_req: AuthRequest, res: Response) {
   const posts = await listQnAPosts();
@@ -31,6 +38,7 @@ export async function createPost(req: AuthRequest, res: Response) {
   }
   const post = await createQnAPost(req.userId!, title, content, category, imageUrls ?? []);
   createNotificationsForLawyers('new_question', '새로운 질문이 등록됐습니다!', title, post.id).catch(() => {});
+  embedQnAPost(post.id, `${title} ${content}`).catch(() => {});
   res.status(201).json(post);
 }
 

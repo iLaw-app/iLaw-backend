@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
+import { getEmbedding } from './embedding.service';
 
 export async function getCategories() {
   return prisma.manualCategory.findMany({
@@ -22,23 +24,36 @@ export async function getArticleById(id: number) {
   });
 }
 
+type ArticleSearchRow = {
+  id: bigint;
+  question: string;
+  summary: string | null;
+  category_name: string;
+  category_slug: string;
+};
+
 export async function searchManualArticles(query: string) {
-  return prisma.manualArticle.findMany({
-    where: {
-      OR: [
-        { question: { contains: query, mode: 'insensitive' } },
-        { summary: { contains: query, mode: 'insensitive' } },
-        { content: { contains: query, mode: 'insensitive' } },
-      ],
-    },
-    select: {
-      id: true,
-      question: true,
-      summary: true,
-      category: { select: { name: true, slug: true } },
-    },
-    take: 20,
-  });
+  const embedding = await getEmbedding(query);
+  const vectorStr = `[${embedding.join(',')}]`;
+
+  const rows = await prisma.$queryRaw<ArticleSearchRow[]>(
+    Prisma.sql`
+      SELECT a.id, a.question, a.summary,
+             c.name AS category_name, c.slug AS category_slug
+      FROM "ManualArticle" a
+      JOIN "ManualCategory" c ON c.id = a."categoryId"
+      WHERE a.embedding IS NOT NULL
+      ORDER BY a.embedding <=> ${vectorStr}::vector
+      LIMIT 10
+    `
+  );
+
+  return rows.map((r) => ({
+    id: Number(r.id),
+    question: r.question,
+    summary: r.summary,
+    category: { name: r.category_name, slug: r.category_slug },
+  }));
 }
 
 export async function getAgencies(slug: string, region?: string) {

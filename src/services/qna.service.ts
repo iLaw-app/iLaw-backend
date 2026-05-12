@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
+import { getEmbedding } from './embedding.service';
 
 export async function listQnAPosts() {
   return prisma.qnAPost.findMany({
@@ -32,6 +34,49 @@ export async function createQnAPost(authorId: string, title: string, content: st
   return prisma.qnAPost.create({
     data: { authorId, title, content, category, imageUrls },
   });
+}
+
+export async function embedQnAPost(postId: number, text: string) {
+  const embedding = await getEmbedding(text);
+  const vectorStr = `[${embedding.join(',')}]`;
+  await prisma.$executeRaw(
+    Prisma.sql`UPDATE "QnAPost" SET embedding = ${vectorStr}::vector WHERE id = ${postId}`
+  );
+}
+
+type QnASearchRow = {
+  id: bigint;
+  title: string;
+  category: string;
+  status: string;
+  created_at: Date;
+  author_nickname: string | null;
+};
+
+export async function searchQnAPosts(query: string) {
+  const embedding = await getEmbedding(query);
+  const vectorStr = `[${embedding.join(',')}]`;
+
+  const rows = await prisma.$queryRaw<QnASearchRow[]>(
+    Prisma.sql`
+      SELECT p.id, p.title, p.category, p.status, p."createdAt" AS created_at,
+             u.nickname AS author_nickname
+      FROM "QnAPost" p
+      JOIN "User" u ON u.id = p."authorId"
+      WHERE p.embedding IS NOT NULL
+      ORDER BY p.embedding <=> ${vectorStr}::vector
+      LIMIT 10
+    `
+  );
+
+  return rows.map((r) => ({
+    id: Number(r.id),
+    title: r.title,
+    category: r.category,
+    status: r.status,
+    createdAt: r.created_at,
+    author: { nickname: r.author_nickname },
+  }));
 }
 
 export async function listUserQnAPosts(authorId: string) {

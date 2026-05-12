@@ -57,6 +57,7 @@ model ManualArticle {
   content    String
   order      Int            @default(0)
   scraps     ArticleScrap[]
+  embedding  Unsupported("vector(1536)")?
 }
 
 model Agency {
@@ -85,6 +86,7 @@ model QnAPost {
   updatedAt DateTime   @updatedAt
   answer    QnAAnswer?
   scraps    QnAScrap[]
+  embedding  Unsupported("vector(1536)")?
 }
 
 model QnAAnswer {

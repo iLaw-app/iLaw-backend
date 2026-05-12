@@ -10,7 +10,9 @@
     "db:generate": "prisma generate",
     "docs:build": "ts-node src/generate-spec.ts",
     "seed:local": "ts-node prisma/seed.ts",
-    "seed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL ts-node prisma/seed.ts'"
+    "seed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL ts-node prisma/seed.ts'",
+    "embed:local": "ts-node prisma/embed-articles.ts",
+    "embed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL OPENAI_API_KEY=$OPENAI_API_KEY ts-node prisma/embed-articles.ts'"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +32,7 @@
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "openai": "^6.37.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-kakao": "^1.0.1",

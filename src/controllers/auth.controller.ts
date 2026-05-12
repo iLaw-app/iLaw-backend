@@ -49,6 +49,10 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'nickname, region, birthYear, gender are required' });
     return;
   }
+  if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
+    res.status(400).json({ message: '아이디는 영어, 숫자, _만 사용 가능합니다.' });
+    return;
+  }
   if (!['male', 'female', 'other'].includes(gender)) {
     res.status(400).json({ message: 'gender must be male, female, or other' });
     return;

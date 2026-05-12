@@ -142,6 +142,7 @@ export async function getMe(req: AuthRequest, res: Response) {
         gender: true,
         provider: true,
         profileCompleted: true,
+        role: true,
         agreedMarketing: true,
         createdAt: true,
       },
@@ -156,4 +157,18 @@ export async function getMe(req: AuthRequest, res: Response) {
   } catch {
     res.status(500).json({ message: 'Failed to fetch user info.' });
   }
+}
+
+export async function devSetRole(req: AuthRequest, res: Response) {
+  const { role } = req.body as { role?: string };
+  if (role !== 'user' && role !== 'lawyer') {
+    res.status(400).json({ message: 'role must be user or lawyer' });
+    return;
+  }
+  const user = await prisma.user.update({
+    where: { id: req.userId },
+    data: { role },
+    select: { id: true, role: true },
+  });
+  res.json(user);
 }

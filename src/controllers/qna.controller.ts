@@ -3,7 +3,6 @@ import { AuthRequest } from '../middlewares/authenticate';
 import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer, embedQnAPost, searchQnAPosts } from '../services/qna.service';
 import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
-import prisma from '../prisma/client';
 
 export async function searchPosts(req: AuthRequest, res: Response) {
   const q = (req.query.q as string)?.trim();
@@ -66,11 +65,6 @@ export async function createAnswer(req: AuthRequest, res: Response) {
   const { content } = req.body as { content?: string };
   if (isNaN(postId) || !content?.trim()) {
     res.status(400).json({ message: 'postId and content are required' });
-    return;
-  }
-  const user = await prisma.user.findUnique({ where: { id: req.userId! }, select: { role: true } });
-  if (user?.role !== 'lawyer') {
-    res.status(403).json({ message: 'Only lawyers can answer' });
     return;
   }
   const existing = await getQnAPost(postId);

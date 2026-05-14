@@ -9,6 +9,7 @@ export async function listQnAPosts() {
     select: {
       id: true,
       title: true,
+      content: true,
       category: true,
       status: true,
       createdAt: true,

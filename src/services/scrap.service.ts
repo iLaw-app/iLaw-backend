@@ -54,7 +54,8 @@ export async function getQnAScrapStatus(userId: string, postId: number) {
   const existing = await prisma.qnAScrap.findUnique({
     where: { userId_postId: { userId, postId } },
   });
-  return { scrapped: !!existing };
+  const count = await prisma.qnAScrap.count({ where: { postId } });
+  return { scrapped: !!existing, count };
 }
 
 export async function getUserQnAScraps(userId: string) {

@@ -27,6 +27,7 @@ export async function getPost(req: AuthRequest, res: Response) {
     author: {
       ...post.author,
       age: post.author.birthYear ? currentYear - post.author.birthYear + 1 : null,
+      gender: post.author.gender === 'male' ? '남성' : post.author.gender === 'female' ? '여성' : null,
     },
   });
 }

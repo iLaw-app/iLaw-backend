@@ -22,7 +22,7 @@ export async function getQnAPost(id: number) {
   return prisma.qnAPost.findUnique({
     where: { id },
     include: {
-      author: { select: { nickname: true } },
+      author: { select: { nickname: true, birthYear: true, region: true, gender: true } },
       answer: {
         include: {
           lawyer: { select: { nickname: true, role: true } },

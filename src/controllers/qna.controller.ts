@@ -21,7 +21,14 @@ export async function getPost(req: AuthRequest, res: Response) {
   if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
   const post = await getQnAPost(id);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
-  res.json(post);
+  const currentYear = new Date().getFullYear();
+  res.json({
+    ...post,
+    author: {
+      ...post.author,
+      age: post.author.birthYear ? currentYear - post.author.birthYear + 1 : null,
+    },
+  });
 }
 
 export async function listMyPosts(req: AuthRequest, res: Response) {

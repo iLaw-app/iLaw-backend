@@ -147,6 +147,7 @@ export async function getMe(req: AuthRequest, res: Response) {
         provider: true,
         profileCompleted: true,
         role: true,
+        affiliation: true,
         agreedMarketing: true,
         createdAt: true,
       },
@@ -164,11 +165,12 @@ export async function getMe(req: AuthRequest, res: Response) {
 }
 
 export async function updateProfile(req: AuthRequest, res: Response) {
-  const { nickname, region, birthYear, gender } = req.body as {
+  const { nickname, region, birthYear, gender, affiliation } = req.body as {
     nickname?: string;
     region?: string;
     birthYear?: number;
     gender?: string;
+    affiliation?: string;
   };
 
   if (!nickname || !region || !birthYear || !gender) {
@@ -187,8 +189,8 @@ export async function updateProfile(req: AuthRequest, res: Response) {
   try {
     const updated = await prisma.user.update({
       where: { id: req.userId },
-      data: { nickname, region, birthYear, gender },
-      select: { id: true, nickname: true, region: true, birthYear: true, gender: true },
+      data: { nickname, region, birthYear, gender, affiliation: affiliation ?? null },
+      select: { id: true, nickname: true, region: true, birthYear: true, gender: true, affiliation: true },
     });
     res.json(updated);
   } catch (e: unknown) {

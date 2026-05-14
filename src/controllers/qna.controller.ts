@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer, embedQnAPost, searchQnAPosts } from '../services/qna.service';
+import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer, embedQnAPost, searchQnAPosts, listLawyerAnswers } from '../services/qna.service';
 import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
@@ -34,6 +34,11 @@ export async function getPost(req: AuthRequest, res: Response) {
 
 export async function listMyPosts(req: AuthRequest, res: Response) {
   const posts = await listUserQnAPosts(req.userId!);
+  res.json(posts);
+}
+
+export async function listMyAnswers(req: AuthRequest, res: Response) {
+  const posts = await listLawyerAnswers(req.userId!);
   res.json(posts);
 }
 

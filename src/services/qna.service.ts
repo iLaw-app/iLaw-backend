@@ -97,6 +97,33 @@ export async function listUserQnAPosts(authorId: string) {
   });
 }
 
+export async function listLawyerAnswers(lawyerId: string) {
+  const answers = await prisma.qnAAnswer.findMany({
+    where: { lawyerId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      createdAt: true,
+      post: {
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          createdAt: true,
+        },
+      },
+    },
+  });
+  return answers.map(a => ({
+    id: a.post.id,
+    title: a.post.title,
+    content: a.post.content,
+    category: a.post.category,
+    createdAt: a.post.createdAt,
+    answeredAt: a.createdAt,
+  }));
+}
+
 export async function createQnAAnswer(postId: number, lawyerId: string, content: string) {
   const [answer] = await prisma.$transaction([
     prisma.qnAAnswer.create({ data: { postId, lawyerId, content } }),

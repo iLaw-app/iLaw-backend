@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middlewares/authenticate';
+import { authenticate, optionalAuthenticate } from '../middlewares/authenticate';
 import {
   listPosts,
   getPost,
@@ -7,6 +7,8 @@ import {
   updatePost,
   deletePost,
   toggleLike,
+  toggleBookmark,
+  votePoll,
   listComments,
   createComment,
   deleteComment,
@@ -15,11 +17,13 @@ import {
 const router = Router();
 
 router.get('/', listPosts);
-router.get('/:id', getPost);
+router.get('/:id', optionalAuthenticate, getPost);
 router.post('/', authenticate, createPost);
 router.put('/:id', authenticate, updatePost);
 router.delete('/:id', authenticate, deletePost);
 router.post('/:id/like', authenticate, toggleLike);
+router.post('/:id/bookmark', authenticate, toggleBookmark);
+router.post('/:id/vote', authenticate, votePoll);
 router.get('/:id/comments', listComments);
 router.post('/:id/comments', authenticate, createComment);
 router.delete('/:id/comments/:commentId', authenticate, deleteComment);

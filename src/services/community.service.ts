@@ -1,5 +1,36 @@
 import prisma from '../prisma/client';
 
+type PollOption = { label: string; votes: number };
+type PollData = { options: PollOption[] };
+
+function normalizePoll(poll: unknown): PollData | null {
+  if (!poll || typeof poll !== 'object' || !('options' in poll)) return null;
+  const options = (poll as { options?: unknown }).options;
+  if (!Array.isArray(options)) return null;
+
+  const normalized = options
+    .map((option) => {
+      if (!option || typeof option !== 'object') return null;
+      const label = String((option as { label?: unknown }).label ?? '').trim();
+      if (!label) return null;
+      const votes = Number((option as { votes?: unknown }).votes ?? 0);
+      return { label, votes: Number.isFinite(votes) && votes > 0 ? Math.floor(votes) : 0 };
+    })
+    .filter((option): option is PollOption => !!option);
+
+  return normalized.length >= 2 ? { options: normalized } : null;
+}
+
+function formatPoll(poll: unknown, votedOptionIndex?: number | null) {
+  const normalized = normalizePoll(poll);
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    total: normalized.options.reduce((sum, option) => sum + option.votes, 0),
+    votedOptionIndex: votedOptionIndex ?? null,
+  };
+}
+
 export async function listPosts(page: number, limit: number) {
   const skip = (page - 1) * limit;
   const [posts, total] = await Promise.all([
@@ -14,7 +45,7 @@ export async function listPosts(page: number, limit: number) {
         poll: true,
         createdAt: true,
         author: { select: { nickname: true } },
-        _count: { select: { likes: true, comments: true } },
+        _count: { select: { likes: true, comments: true, bookmarks: true } },
       },
     }),
     prisma.communityPost.count(),
@@ -28,8 +59,9 @@ export async function listPosts(page: number, limit: number) {
       title: p.title,
       content: p.content,
       likes: p._count.likes,
+      bookmarks: p._count.bookmarks,
       comments: p._count.comments,
-      poll: p.poll ?? null,
+      poll: formatPoll(p.poll),
     })),
     total,
     page,
@@ -42,7 +74,7 @@ export async function getPost(id: number, userId?: string) {
     where: { id },
     include: {
       author: { select: { nickname: true } },
-      _count: { select: { likes: true } },
+      _count: { select: { likes: true, bookmarks: true } },
       comments: {
         orderBy: { createdAt: 'desc' },
         include: { author: { select: { id: true, nickname: true } } },
@@ -51,11 +83,13 @@ export async function getPost(id: number, userId?: string) {
   });
   if (!post) return null;
 
-  const liked = userId
-    ? !!(await prisma.communityLike.findUnique({
-        where: { userId_postId: { userId, postId: id } },
-      }))
-    : false;
+  const [liked, bookmarked, vote] = userId
+    ? await Promise.all([
+        prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId: id } } }),
+        prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId: id } } }),
+        prisma.communityPollVote.findUnique({ where: { userId_postId: { userId, postId: id } } }),
+      ])
+    : [null, null, null] as const;
 
   return {
     id: post.id,
@@ -65,8 +99,10 @@ export async function getPost(id: number, userId?: string) {
     content: post.content,
     imageUrls: post.imageUrls,
     likes: post._count.likes,
-    liked,
-    poll: post.poll ?? null,
+    liked: !!liked,
+    bookmarks: post._count.bookmarks,
+    bookmarked: !!bookmarked,
+    poll: formatPoll(post.poll, vote?.optionIndex),
     comments: post.comments.map((c) => ({
       id: c.id,
       nickname: c.author.nickname,
@@ -86,7 +122,7 @@ export async function createPost(
       authorId: userId,
       title: data.title,
       content: data.content,
-      poll: data.poll ?? undefined,
+      poll: normalizePoll(data.poll) ?? undefined,
       imageUrls: data.imageUrls ?? [],
     },
     select: { id: true, title: true, createdAt: true },
@@ -120,17 +156,85 @@ export async function deletePost(id: number, userId: string) {
 }
 
 export async function toggleLike(postId: number, userId: string) {
+  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true } });
+  if (!post) return { error: 'not_found' as const };
+
   const exists = await prisma.communityLike.findUnique({
     where: { userId_postId: { userId, postId } },
   });
 
   if (exists) {
     await prisma.communityLike.delete({ where: { userId_postId: { userId, postId } } });
-    return { liked: false };
+    const count = await prisma.communityLike.count({ where: { postId } });
+    return { data: { liked: false, count } };
   } else {
     await prisma.communityLike.create({ data: { userId, postId } });
-    return { liked: true };
+    const count = await prisma.communityLike.count({ where: { postId } });
+    return { data: { liked: true, count } };
   }
+}
+
+export async function toggleBookmark(postId: number, userId: string) {
+  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true } });
+  if (!post) return { error: 'not_found' as const };
+
+  const exists = await prisma.communityBookmark.findUnique({
+    where: { userId_postId: { userId, postId } },
+  });
+
+  if (exists) {
+    await prisma.communityBookmark.delete({ where: { userId_postId: { userId, postId } } });
+    const count = await prisma.communityBookmark.count({ where: { postId } });
+    return { data: { bookmarked: false, count } };
+  }
+
+  await prisma.communityBookmark.create({ data: { userId, postId } });
+  const count = await prisma.communityBookmark.count({ where: { postId } });
+  return { data: { bookmarked: true, count } };
+}
+
+export async function votePoll(postId: number, userId: string, optionIndex: number) {
+  const post = await prisma.communityPost.findUnique({
+    where: { id: postId },
+    select: { id: true, poll: true },
+  });
+  if (!post) return { error: 'not_found' as const };
+
+  const poll = normalizePoll(post.poll);
+  if (!poll) return { error: 'no_poll' as const };
+  if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
+    return { error: 'invalid_option' as const };
+  }
+
+  const existing = await prisma.communityPollVote.findUnique({
+    where: { userId_postId: { userId, postId } },
+  });
+
+  if (existing?.optionIndex === optionIndex) {
+    return { data: { poll: formatPoll(poll, optionIndex) } };
+  }
+
+  if (existing) {
+    poll.options[existing.optionIndex].votes = Math.max(0, poll.options[existing.optionIndex].votes - 1);
+  }
+  poll.options[optionIndex].votes += 1;
+
+  await prisma.$transaction([
+    existing
+      ? prisma.communityPollVote.update({
+          where: { userId_postId: { userId, postId } },
+          data: { optionIndex },
+        })
+      : prisma.communityPollVote.create({
+          data: { userId, postId, optionIndex },
+        }),
+    prisma.communityPost.update({
+      where: { id: postId },
+      data: { poll },
+    }),
+  ]);
+
+  return { data: { poll: formatPoll(poll, optionIndex) } };
 }
 
 export async function listComments(postId: number) {

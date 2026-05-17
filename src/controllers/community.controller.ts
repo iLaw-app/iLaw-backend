@@ -53,7 +53,29 @@ export async function toggleLike(req: AuthRequest, res: Response) {
   if (isNaN(postId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
 
   const result = await communityService.toggleLike(postId, req.userId!);
-  res.json(result);
+  if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
+  res.json(result.data);
+}
+
+export async function toggleBookmark(req: AuthRequest, res: Response) {
+  const postId = parseInt(String(req.params.id));
+  if (isNaN(postId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
+
+  const result = await communityService.toggleBookmark(postId, req.userId!);
+  if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
+  res.json(result.data);
+}
+
+export async function votePoll(req: AuthRequest, res: Response) {
+  const postId = parseInt(String(req.params.id));
+  if (isNaN(postId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
+
+  const { optionIndex } = req.body as { optionIndex?: number };
+  const result = await communityService.votePoll(postId, req.userId!, Number(optionIndex));
+  if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
+  if (result.error === 'no_poll') { res.status(400).json({ message: '투표가 없는 게시글입니다.' }); return; }
+  if (result.error === 'invalid_option') { res.status(400).json({ message: '잘못된 선택지입니다.' }); return; }
+  res.json(result.data);
 }
 
 export async function listComments(req: Request, res: Response) {

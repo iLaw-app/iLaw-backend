@@ -37,6 +37,8 @@ model User {
   notifications     Notification[]
   communityPosts    CommunityPost[]
   communityLikes    CommunityLike[]
+  communityBookmarks CommunityBookmark[]
+  communityPollVotes CommunityPollVote[]
   communityComments CommunityComment[]
 
   @@unique([provider, providerId])
@@ -139,6 +141,8 @@ model CommunityPost {
   updatedAt DateTime @updatedAt
 
   likes    CommunityLike[]
+  bookmarks CommunityBookmark[]
+  pollVotes CommunityPollVote[]
   comments CommunityComment[]
 }
 
@@ -150,6 +154,30 @@ model CommunityLike {
   createdAt DateTime      @default(now())
 
   @@unique([userId, postId])
+}
+
+model CommunityBookmark {
+  userId    String
+  postId    Int
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@unique([userId, postId])
+}
+
+model CommunityPollVote {
+  id          Int           @id @default(autoincrement())
+  userId      String
+  postId      Int
+  optionIndex Int
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post        CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([userId, postId])
+  @@index([postId, optionIndex])
 }
 
 model CommunityComment {

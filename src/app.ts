@@ -10,6 +10,8 @@ import qnaRouter from './routes/qna';
 import uploadRouter from './routes/upload';
 import notificationsRouter from './routes/notifications';
 import communityRouter from './routes/community';
+import aiRouter from './routes/ai';
+import { loadManualCache } from './services/ai.service';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -24,6 +26,7 @@ app.use('/qna', qnaRouter);
 app.use('/upload', uploadRouter);
 app.use('/notifications', notificationsRouter);
 app.use('/community', communityRouter);
+app.use('/ai', aiRouter);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {
@@ -33,8 +36,10 @@ app.get('/health', (_req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT ?? 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  await loadManualCache();
+  console.log('Manual cache loaded');
 });
 
 export default app;

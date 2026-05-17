@@ -240,23 +240,55 @@ export async function votePoll(postId: number, userId: string, optionIndex: numb
 export async function listComments(postId: number) {
   const comments = await prisma.communityComment.findMany({
     where: { postId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' },
     include: { author: { select: { nickname: true } } },
   });
-  return comments.map((c) => ({
+
+  const mapped = comments.map((c) => ({
     id: c.id,
     nickname: c.author.nickname,
     createdAt: c.createdAt,
     content: c.content,
+    parentId: c.parentId,
+    replies: [] as {
+      id: number;
+      nickname: string | null;
+      createdAt: Date;
+      content: string;
+      parentId: number | null;
+    }[],
+  }));
+
+  const byId = new Map(mapped.map((c) => [c.id, c]));
+  const roots: typeof mapped = [];
+  for (const comment of mapped) {
+    if (comment.parentId && byId.has(comment.parentId)) {
+      byId.get(comment.parentId)!.replies.push(comment);
+    } else {
+      roots.push(comment);
+    }
+  }
+
+  return roots.reverse().map((comment) => ({
+    ...comment,
+    replies: comment.replies,
   }));
 }
 
-export async function createComment(postId: number, userId: string, content: string) {
+export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
   const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true } });
   if (!post) return { error: 'not_found' as const };
+  if (parentId) {
+    const parent = await prisma.communityComment.findUnique({
+      where: { id: parentId },
+      select: { id: true, postId: true, parentId: true },
+    });
+    if (!parent || parent.postId !== postId) return { error: 'parent_not_found' as const };
+    if (parent.parentId) return { error: 'nested_reply' as const };
+  }
 
   const comment = await prisma.communityComment.create({
-    data: { postId, authorId: userId, content },
+    data: { postId, authorId: userId, content, parentId },
     include: { author: { select: { nickname: true } } },
   });
   return {
@@ -265,6 +297,8 @@ export async function createComment(postId: number, userId: string, content: str
       nickname: comment.author.nickname,
       createdAt: comment.createdAt,
       content: comment.content,
+      parentId: comment.parentId,
+      replies: [],
     },
   };
 }

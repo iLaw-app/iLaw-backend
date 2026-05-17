@@ -90,11 +90,13 @@ export async function createComment(req: AuthRequest, res: Response) {
   const postId = parseInt(String(req.params.id));
   if (isNaN(postId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
 
-  const { content } = req.body;
+  const { content, parentId } = req.body as { content?: string; parentId?: number };
   if (!content?.trim()) { res.status(400).json({ message: '댓글 내용을 입력해주세요.' }); return; }
 
-  const result = await communityService.createComment(postId, req.userId!, content);
+  const result = await communityService.createComment(postId, req.userId!, content, parentId);
   if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
+  if (result.error === 'parent_not_found') { res.status(404).json({ message: '원댓글을 찾을 수 없습니다.' }); return; }
+  if (result.error === 'nested_reply') { res.status(400).json({ message: '답글에는 다시 답글을 달 수 없습니다.' }); return; }
   res.status(201).json(result.data);
 }
 

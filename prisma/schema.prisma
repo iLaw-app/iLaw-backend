@@ -184,10 +184,15 @@ model CommunityComment {
   id        Int      @id @default(autoincrement())
   postId    Int
   authorId  String
+  parentId  Int?
   post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    CommunityComment?  @relation("CommunityCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   CommunityComment[] @relation("CommunityCommentReplies")
   content   String
   createdAt DateTime      @default(now())
+
+  @@index([postId, parentId])
 }
 
 model ArticleScrap {

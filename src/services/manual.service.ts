@@ -23,7 +23,7 @@ export async function getArticleById(id: number) {
   });
 }
 
-export async function searchManualArticles(query: string, categorySlug?: string) {
+export async function searchManualArticles(query: string, categorySlug?: string, debug = false) {
   const terms = expandQuery(query);
 
   const articles = await prisma.manualArticle.findMany({
@@ -55,7 +55,7 @@ export async function searchManualArticles(query: string, categorySlug?: string)
     .filter((a) => a.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
-    .map(({ score: _score, ...rest }) => rest);
+    .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 }
 
 export async function getAgencies(slug: string, region?: string) {

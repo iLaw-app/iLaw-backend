@@ -11,15 +11,16 @@ const s3 = new S3Client({
 
 const BUCKET = process.env.AWS_S3_BUCKET!;
 
-export async function uploadToS3(buffer: Buffer, mimetype: string): Promise<string> {
+export async function uploadToS3(buffer: Buffer, mimetype: string, folder = 'uploads'): Promise<string> {
   const ext = mimetype.split('/')[1] ?? 'jpg';
-  const key = `qna/${randomUUID()}.${ext}`;
+  const key = `${folder}/${randomUUID()}.${ext}`;
 
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
     Body: buffer,
     ContentType: mimetype,
+    ACL: 'public-read',
   }));
 
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;

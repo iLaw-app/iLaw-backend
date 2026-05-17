@@ -36,7 +36,8 @@ async function getQnaCache(): Promise<QnaItem[]> {
 type Reference = { type: 'manual' | 'qna'; id: number };
 
 export async function diagnose(message: string): Promise<{
-  summary: string;
+  situationSummary: string;
+  legalAdvice: string;
   suggestions: { type: 'manual' | 'qna'; id: number; label: string }[];
 }> {
   const manuals = manualCache;
@@ -141,8 +142,6 @@ ${contentBlocks}`,
   }
 
   // ── 응답 조합 ──
-  const summary = [situationSummary, legalAdvice].filter(Boolean).join('\n\n');
-
   const suggestions = references
     .map(ref => {
       const label =
@@ -153,5 +152,5 @@ ${contentBlocks}`,
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
 
-  return { summary, suggestions };
+  return { situationSummary, legalAdvice, suggestions };
 }

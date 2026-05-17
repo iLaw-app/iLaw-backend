@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
 const s3 = new S3Client({
@@ -23,31 +23,4 @@ export async function uploadToS3(buffer: Buffer, mimetype: string, folder = 'upl
   }));
 
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
-}
-
-export async function getUploadedImage(url: string) {
-  const parsed = new URL(url);
-  const expectedHost = `${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com`;
-  if (parsed.hostname !== expectedHost) {
-    throw new Error('Invalid S3 image URL');
-  }
-
-  const key = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-  if (!key.startsWith('uploads/')) {
-    throw new Error('Invalid upload key');
-  }
-
-  const object = await s3.send(new GetObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-  }));
-  const bytes = await object.Body?.transformToByteArray();
-  if (!bytes) {
-    throw new Error('Empty S3 object body');
-  }
-
-  return {
-    buffer: Buffer.from(bytes),
-    contentType: object.ContentType ?? 'application/octet-stream',
-  };
 }

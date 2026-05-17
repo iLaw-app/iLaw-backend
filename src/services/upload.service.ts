@@ -20,7 +20,6 @@ export async function uploadToS3(buffer: Buffer, mimetype: string, folder = 'upl
     Key: key,
     Body: buffer,
     ContentType: mimetype,
-    ACL: 'public-read',
   }));
 
   return `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;

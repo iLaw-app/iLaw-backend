@@ -30,11 +30,14 @@ model User {
   refreshToken String?
   createdAt    DateTime @default(now())
 
-  qnaPosts      QnAPost[]
-  qnaAnswers    QnAAnswer[]
-  articleScraps ArticleScrap[]
-  qnaScraps     QnAScrap[]
-  notifications Notification[]
+  qnaPosts          QnAPost[]
+  qnaAnswers        QnAAnswer[]
+  articleScraps     ArticleScrap[]
+  qnaScraps         QnAScrap[]
+  notifications     Notification[]
+  communityPosts    CommunityPost[]
+  communityLikes    CommunityLike[]
+  communityComments CommunityComment[]
 
   @@unique([provider, providerId])
 }
@@ -122,6 +125,41 @@ model Notification {
   read      Boolean  @default(false)
   refId     Int?
   createdAt DateTime @default(now())
+}
+
+model CommunityPost {
+  id        Int      @id @default(autoincrement())
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title     String
+  content   String?
+  poll      Json?
+  imageUrls String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  likes    CommunityLike[]
+  comments CommunityComment[]
+}
+
+model CommunityLike {
+  userId    String
+  postId    Int
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@unique([userId, postId])
+}
+
+model CommunityComment {
+  id        Int      @id @default(autoincrement())
+  postId    Int
+  authorId  String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime      @default(now())
 }
 
 model ArticleScrap {

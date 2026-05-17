@@ -63,6 +63,7 @@ export async function getPost(id: number, userId?: string) {
     createdAt: post.createdAt,
     title: post.title,
     content: post.content,
+    imageUrls: post.imageUrls,
     likes: post._count.likes,
     liked,
     poll: post.poll ?? null,

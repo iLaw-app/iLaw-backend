@@ -74,7 +74,7 @@ export async function searchQnAPosts(query: string) {
       (acc, term) =>
         acc +
         (p.title.includes(term) ? 2 : 0) +
-        (p.content.includes(term) ? 1 : 0),
+        (p.content.includes(term) ? 1.5 : 0),
       0,
     ),
   }));

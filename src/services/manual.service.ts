@@ -44,9 +44,9 @@ export async function searchManualArticles(query: string, categorySlug?: string)
     score: terms.reduce(
       (acc, term) =>
         acc +
-        (a.question.includes(term) ? 3 : 0) +
+        (a.question.includes(term) ? 2 : 0) +
         ((a.summary ?? '').includes(term) ? 2 : 0) +
-        (a.content.includes(term) ? 1 : 0),
+        (a.content.includes(term) ? 1.5 : 0),
       0,
     ),
   }));

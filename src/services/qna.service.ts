@@ -25,7 +25,7 @@ export async function getQnAPost(id: number) {
       author: { select: { nickname: true, birthYear: true, region: true, gender: true } },
       answer: {
         include: {
-          lawyer: { select: { nickname: true, role: true } },
+          lawyer: { select: { nickname: true, role: true, affiliation: true } },
         },
       },
     },

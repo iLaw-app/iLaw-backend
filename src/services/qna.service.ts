@@ -46,7 +46,7 @@ export async function embedQnAPost(postId: number, text: string) {
   );
 }
 
-export async function searchQnAPosts(query: string) {
+export async function searchQnAPosts(query: string, debug = false) {
   const terms = expandQuery(query);
 
   const posts = await prisma.qnAPost.findMany({
@@ -83,7 +83,7 @@ export async function searchQnAPosts(query: string) {
     .filter((p) => p.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
-    .map(({ score: _score, ...rest }) => rest);
+    .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 }
 
 export async function listUserQnAPosts(authorId: string) {

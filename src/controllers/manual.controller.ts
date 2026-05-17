@@ -36,7 +36,8 @@ export async function searchArticles(req: Request, res: Response) {
   const q = req.query.q as string;
   if (!q?.trim()) { res.json([]); return; }
   const categorySlug = req.query.categorySlug as string | undefined;
-  const results = await searchManualArticles(q.trim(), categorySlug);
+  const debug = req.query.debug === 'true';
+  const results = await searchManualArticles(q.trim(), categorySlug, debug);
   res.json(results);
 }
 

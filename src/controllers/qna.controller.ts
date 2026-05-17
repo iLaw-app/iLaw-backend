@@ -7,7 +7,8 @@ import { createNotificationsForLawyers } from '../services/notification.service'
 export async function searchPosts(req: AuthRequest, res: Response) {
   const q = (req.query.q as string)?.trim();
   if (!q) { res.json([]); return; }
-  const results = await searchQnAPosts(q);
+  const debug = req.query.debug === 'true';
+  const results = await searchQnAPosts(q, debug);
   res.json(results);
 }
 

@@ -31,6 +31,8 @@ function formatPoll(poll: unknown, votedOptionIndex?: number | null) {
   };
 }
 
+const ANONYMOUS_POST_AUTHOR = '익명';
+
 export async function listPosts(page: number, limit: number) {
   const skip = (page - 1) * limit;
   const [posts, total] = await Promise.all([
@@ -54,7 +56,7 @@ export async function listPosts(page: number, limit: number) {
   return {
     posts: posts.map((p) => ({
       id: p.id,
-      nickname: p.author.nickname,
+      nickname: ANONYMOUS_POST_AUTHOR,
       createdAt: p.createdAt,
       title: p.title,
       content: p.content,
@@ -76,7 +78,7 @@ export async function getPost(id: number, userId?: string) {
       author: { select: { nickname: true } },
       _count: { select: { likes: true, bookmarks: true } },
       comments: {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'asc' },
         include: { author: { select: { id: true, nickname: true } } },
       },
     },
@@ -93,7 +95,7 @@ export async function getPost(id: number, userId?: string) {
 
   return {
     id: post.id,
-    nickname: post.author.nickname,
+    nickname: ANONYMOUS_POST_AUTHOR,
     createdAt: post.createdAt,
     title: post.title,
     content: post.content,
@@ -239,22 +241,32 @@ type CommunityCommentRow = {
   author: { id: string; nickname: string | null };
 };
 
+type CommunityCommentResponse = {
+  id: number;
+  nickname: string;
+  createdAt: Date;
+  content: string;
+  parentId: number | null;
+  isAuthor: boolean;
+  replies: CommunityCommentResponse[];
+};
+
 function buildCommentTree(comments: CommunityCommentRow[], userId?: string) {
-  const mapped = comments.map((c) => ({
+  const authorLabels = new Map<string, string>();
+  for (const comment of comments) {
+    if (!authorLabels.has(comment.author.id)) {
+      authorLabels.set(comment.author.id, `익명${authorLabels.size + 1}`);
+    }
+  }
+
+  const mapped: CommunityCommentResponse[] = comments.map((c) => ({
     id: c.id,
-    nickname: c.author.nickname,
+    nickname: authorLabels.get(c.author.id) ?? '익명',
     createdAt: c.createdAt,
     content: c.content,
     parentId: c.parentId,
     isAuthor: userId ? c.author.id === userId : false,
-    replies: [] as {
-      id: number;
-      nickname: string | null;
-      createdAt: Date;
-      content: string;
-      parentId: number | null;
-      isAuthor: boolean;
-    }[],
+    replies: [],
   }));
 
   const byId = new Map(mapped.map((c) => [c.id, c]));
@@ -297,12 +309,27 @@ export async function createComment(postId: number, userId: string, content: str
 
   const comment = await prisma.communityComment.create({
     data: { postId, authorId: userId, content, parentId },
-    include: { author: { select: { nickname: true } } },
   });
+  const comments = await prisma.communityComment.findMany({
+    where: { postId },
+    orderBy: { createdAt: 'asc' },
+    include: { author: { select: { id: true, nickname: true } } },
+  });
+  const anonymized = buildCommentTree(comments, userId);
+  const findComment = (items: typeof anonymized): (typeof anonymized)[number] | undefined => {
+    for (const item of items) {
+      if (item.id === comment.id) return item;
+      const reply = findComment(item.replies);
+      if (reply) return reply;
+    }
+    return undefined;
+  };
+  const created = findComment(anonymized);
+
   return {
     data: {
       id: comment.id,
-      nickname: comment.author.nickname,
+      nickname: created?.nickname ?? '익명',
       createdAt: comment.createdAt,
       content: comment.content,
       parentId: comment.parentId,

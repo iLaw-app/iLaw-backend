@@ -79,7 +79,11 @@ export async function getPost(id: number, userId?: string) {
       _count: { select: { likes: true, bookmarks: true } },
       comments: {
         orderBy: { createdAt: 'asc' },
-        include: { author: { select: { id: true, nickname: true } } },
+        include: {
+          author: { select: { id: true, nickname: true } },
+          likes: userId ? { where: { userId }, select: { userId: true } } : false,
+          _count: { select: { likes: true } },
+        },
       },
     },
   });
@@ -96,6 +100,7 @@ export async function getPost(id: number, userId?: string) {
   return {
     id: post.id,
     nickname: ANONYMOUS_POST_AUTHOR,
+    isAuthor: userId ? post.authorId === userId : false,
     createdAt: post.createdAt,
     title: post.title,
     content: post.content,
@@ -239,6 +244,8 @@ type CommunityCommentRow = {
   createdAt: Date;
   content: string;
   author: { id: string; nickname: string | null };
+  likes?: { userId: string }[];
+  _count: { likes: number };
 };
 
 type CommunityCommentResponse = {
@@ -246,6 +253,8 @@ type CommunityCommentResponse = {
   nickname: string;
   createdAt: Date;
   content: string;
+  likes: number;
+  liked: boolean;
   parentId: number | null;
   isAuthor: boolean;
   replies: CommunityCommentResponse[];
@@ -264,6 +273,8 @@ function buildCommentTree(comments: CommunityCommentRow[], userId?: string) {
     nickname: authorLabels.get(c.author.id) ?? '익명',
     createdAt: c.createdAt,
     content: c.content,
+    likes: c._count.likes,
+    liked: !!c.likes?.length,
     parentId: c.parentId,
     isAuthor: userId ? c.author.id === userId : false,
     replies: [],
@@ -289,7 +300,11 @@ export async function listComments(postId: number, userId?: string) {
   const comments = await prisma.communityComment.findMany({
     where: { postId },
     orderBy: { createdAt: 'asc' },
-    include: { author: { select: { id: true, nickname: true } } },
+    include: {
+      author: { select: { id: true, nickname: true } },
+      likes: userId ? { where: { userId }, select: { userId: true } } : false,
+      _count: { select: { likes: true } },
+    },
   });
 
   return buildCommentTree(comments, userId);
@@ -313,7 +328,11 @@ export async function createComment(postId: number, userId: string, content: str
   const comments = await prisma.communityComment.findMany({
     where: { postId },
     orderBy: { createdAt: 'asc' },
-    include: { author: { select: { id: true, nickname: true } } },
+    include: {
+      author: { select: { id: true, nickname: true } },
+      likes: { where: { userId }, select: { userId: true } },
+      _count: { select: { likes: true } },
+    },
   });
   const anonymized = buildCommentTree(comments, userId);
   const findComment = (items: typeof anonymized): (typeof anonymized)[number] | undefined => {
@@ -332,6 +351,8 @@ export async function createComment(postId: number, userId: string, content: str
       nickname: created?.nickname ?? '익명',
       createdAt: comment.createdAt,
       content: comment.content,
+      likes: created?.likes ?? 0,
+      liked: created?.liked ?? false,
       parentId: comment.parentId,
       isAuthor: true,
       replies: [],
@@ -349,4 +370,23 @@ export async function deleteComment(commentId: number, userId: string) {
 
   await prisma.communityComment.delete({ where: { id: commentId } });
   return { data: true };
+}
+
+export async function toggleCommentLike(commentId: number, userId: string) {
+  const comment = await prisma.communityComment.findUnique({ where: { id: commentId }, select: { id: true } });
+  if (!comment) return { error: 'not_found' as const };
+
+  const exists = await prisma.communityCommentLike.findUnique({
+    where: { userId_commentId: { userId, commentId } },
+  });
+
+  if (exists) {
+    await prisma.communityCommentLike.delete({ where: { userId_commentId: { userId, commentId } } });
+    const count = await prisma.communityCommentLike.count({ where: { commentId } });
+    return { data: { liked: false, count } };
+  }
+
+  await prisma.communityCommentLike.create({ data: { userId, commentId } });
+  const count = await prisma.communityCommentLike.count({ where: { commentId } });
+  return { data: { liked: true, count } };
 }

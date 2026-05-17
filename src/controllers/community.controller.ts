@@ -109,3 +109,12 @@ export async function deleteComment(req: AuthRequest, res: Response) {
   if (result.error === 'forbidden') { res.status(403).json({ message: '권한이 없습니다.' }); return; }
   res.status(204).send();
 }
+
+export async function toggleCommentLike(req: AuthRequest, res: Response) {
+  const commentId = parseInt(String(req.params.commentId));
+  if (isNaN(commentId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
+
+  const result = await communityService.toggleCommentLike(commentId, req.userId!);
+  if (result.error === 'not_found') { res.status(404).json({ message: '댓글을 찾을 수 없습니다.' }); return; }
+  res.json(result.data);
+}

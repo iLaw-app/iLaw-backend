@@ -40,6 +40,7 @@ model User {
   communityBookmarks CommunityBookmark[]
   communityPollVotes CommunityPollVote[]
   communityComments CommunityComment[]
+  communityCommentLikes CommunityCommentLike[]
 
   @@unique([provider, providerId])
 }
@@ -189,10 +190,22 @@ model CommunityComment {
   author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
   parent    CommunityComment?  @relation("CommunityCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   CommunityComment[] @relation("CommunityCommentReplies")
+  likes     CommunityCommentLike[]
   content   String
   createdAt DateTime      @default(now())
 
   @@index([postId, parentId])
+}
+
+model CommunityCommentLike {
+  userId    String
+  commentId Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   CommunityComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+
+  @@unique([userId, commentId])
+  @@index([commentId])
 }
 
 model ArticleScrap {

@@ -12,6 +12,7 @@ import {
   listComments,
   createComment,
   deleteComment,
+  toggleCommentLike,
 } from '../controllers/community.controller';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.post('/:id/bookmark', authenticate, toggleBookmark);
 router.post('/:id/vote', authenticate, votePoll);
 router.get('/:id/comments', optionalAuthenticate, listComments);
 router.post('/:id/comments', authenticate, createComment);
+router.post('/:id/comments/:commentId/like', authenticate, toggleCommentLike);
 router.delete('/:id/comments/:commentId', authenticate, deleteComment);
 
 export default router;

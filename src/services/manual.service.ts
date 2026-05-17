@@ -56,10 +56,12 @@ export async function searchManualArticles(query: string, categorySlug?: string,
     : sorted.some((a) => a.score >= 6) ? 6
     : 3;
 
-  return sorted
+  const results = sorted
     .filter((a) => a.score >= threshold)
     .slice(0, 10)
     .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
+
+  return { results, expandedTerms: terms };
 }
 
 export async function getAgencies(slug: string, region?: string) {

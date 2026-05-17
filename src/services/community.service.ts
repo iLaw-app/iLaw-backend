@@ -89,13 +89,14 @@ export async function getPost(id: number, userId?: string) {
   });
   if (!post) return null;
 
-  const [liked, bookmarked, vote] = userId
+  const [liked, bookmarked, vote, labels] = userId
     ? await Promise.all([
         prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId: id } } }),
         prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId: id } } }),
         prisma.communityPollVote.findUnique({ where: { userId_postId: { userId, postId: id } } }),
+        fetchLabelMap(id),
       ])
-    : [null, null, null] as const;
+    : [null, null, null, await fetchLabelMap(id)] as const;
 
   return {
     id: post.id,
@@ -110,7 +111,7 @@ export async function getPost(id: number, userId?: string) {
     bookmarks: post._count.bookmarks,
     bookmarked: !!bookmarked,
     poll: formatPoll(post.poll, vote?.optionIndex),
-    comments: buildCommentTree(post.comments, userId),
+    comments: buildCommentTree(post.comments, labels, userId),
   };
 }
 
@@ -260,17 +261,10 @@ type CommunityCommentResponse = {
   replies: CommunityCommentResponse[];
 };
 
-function buildCommentTree(comments: CommunityCommentRow[], userId?: string) {
-  const authorLabels = new Map<string, string>();
-  for (const comment of comments) {
-    if (!authorLabels.has(comment.author.id)) {
-      authorLabels.set(comment.author.id, `익명${authorLabels.size + 1}`);
-    }
-  }
-
+function buildCommentTree(comments: CommunityCommentRow[], labels: Map<string, number>, userId?: string) {
   const mapped: CommunityCommentResponse[] = comments.map((c) => ({
     id: c.id,
-    nickname: authorLabels.get(c.author.id) ?? '익명',
+    nickname: `익명${labels.get(c.author.id) ?? '?'}`,
     createdAt: c.createdAt,
     content: c.content,
     likes: c._count.likes,
@@ -296,18 +290,29 @@ function buildCommentTree(comments: CommunityCommentRow[], userId?: string) {
   }));
 }
 
-export async function listComments(postId: number, userId?: string) {
-  const comments = await prisma.communityComment.findMany({
+async function fetchLabelMap(postId: number): Promise<Map<string, number>> {
+  const rows = await prisma.communityCommentAuthorLabel.findMany({
     where: { postId },
-    orderBy: { createdAt: 'asc' },
-    include: {
-      author: { select: { id: true, nickname: true } },
-      likes: userId ? { where: { userId }, select: { userId: true } } : false,
-      _count: { select: { likes: true } },
-    },
+    orderBy: [{ createdAt: 'asc' }, { userId: 'asc' }],
   });
+  return new Map(rows.map((r, i) => [r.userId, i + 1]));
+}
 
-  return buildCommentTree(comments, userId);
+export async function listComments(postId: number, userId?: string) {
+  const [comments, labels] = await Promise.all([
+    prisma.communityComment.findMany({
+      where: { postId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        author: { select: { id: true, nickname: true } },
+        likes: userId ? { where: { userId }, select: { userId: true } } : false,
+        _count: { select: { likes: true } },
+      },
+    }),
+    fetchLabelMap(postId),
+  ]);
+
+  return buildCommentTree(comments, labels, userId);
 }
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
@@ -325,16 +330,26 @@ export async function createComment(postId: number, userId: string, content: str
   const comment = await prisma.communityComment.create({
     data: { postId, authorId: userId, content, parentId },
   });
-  const comments = await prisma.communityComment.findMany({
-    where: { postId },
-    orderBy: { createdAt: 'asc' },
-    include: {
-      author: { select: { id: true, nickname: true } },
-      likes: { where: { userId }, select: { userId: true } },
-      _count: { select: { likes: true } },
-    },
+
+  await prisma.communityCommentAuthorLabel.upsert({
+    where: { postId_userId: { postId, userId } },
+    update: {},
+    create: { postId, userId },
   });
-  const anonymized = buildCommentTree(comments, userId);
+
+  const [comments, labels] = await Promise.all([
+    prisma.communityComment.findMany({
+      where: { postId },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        author: { select: { id: true, nickname: true } },
+        likes: { where: { userId }, select: { userId: true } },
+        _count: { select: { likes: true } },
+      },
+    }),
+    fetchLabelMap(postId),
+  ]);
+  const anonymized = buildCommentTree(comments, labels, userId);
   const findComment = (items: typeof anonymized): (typeof anonymized)[number] | undefined => {
     for (const item of items) {
       if (item.id === comment.id) return item;

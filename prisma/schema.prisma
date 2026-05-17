@@ -41,6 +41,7 @@ model User {
   communityPollVotes CommunityPollVote[]
   communityComments CommunityComment[]
   communityCommentLikes CommunityCommentLike[]
+  communityCommentAuthorLabels CommunityCommentAuthorLabel[]
 
   @@unique([provider, providerId])
 }
@@ -145,6 +146,7 @@ model CommunityPost {
   bookmarks CommunityBookmark[]
   pollVotes CommunityPollVote[]
   comments CommunityComment[]
+  commentAuthorLabels CommunityCommentAuthorLabel[]
 }
 
 model CommunityLike {
@@ -217,4 +219,15 @@ model ArticleScrap {
   createdAt DateTime      @default(now())
 
   @@unique([userId, articleId])
+}
+
+model CommunityCommentAuthorLabel {
+  postId    Int
+  userId    String
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@id([postId, userId])
+  @@index([postId])
 }

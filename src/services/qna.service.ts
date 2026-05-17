@@ -91,10 +91,12 @@ export async function searchQnAPosts(query: string, debug = false) {
     : sorted.some((p) => p.score >= 6) ? 6
     : 3;
 
-  return sorted
+  const results = sorted
     .filter((p) => p.score >= threshold)
     .slice(0, 10)
     .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
+
+  return { results, expandedTerms: terms };
 }
 
 export async function listUserQnAPosts(authorId: string) {

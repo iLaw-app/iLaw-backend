@@ -52,7 +52,7 @@ export async function searchManualArticles(query: string, categorySlug?: string)
   }));
 
   return scored
-    .filter((a) => a.score >= 2)
+    .filter((a) => a.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
     .map(({ score: _score, ...rest }) => rest);

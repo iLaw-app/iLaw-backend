@@ -80,7 +80,7 @@ export async function searchQnAPosts(query: string) {
   }));
 
   return scored
-    .filter((p) => p.score >= 2)
+    .filter((p) => p.score >= 3)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10)
     .map(({ score: _score, ...rest }) => rest);

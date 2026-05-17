@@ -79,9 +79,13 @@ export async function searchQnAPosts(query: string, debug = false) {
     ),
   }));
 
-  return scored
-    .filter((p) => p.score >= 3)
-    .sort((a, b) => b.score - a.score)
+  const sorted = scored.sort((a, b) => b.score - a.score);
+  const threshold = sorted.some((p) => p.score >= 10) ? 10
+    : sorted.some((p) => p.score >= 6) ? 6
+    : 3;
+
+  return sorted
+    .filter((p) => p.score >= threshold)
     .slice(0, 10)
     .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 }

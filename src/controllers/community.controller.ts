@@ -2,6 +2,14 @@ import { Request, Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
 import * as communityService from '../services/community.service';
 
+export async function searchPosts(req: Request, res: Response) {
+  const q = req.query.q as string;
+  if (!q?.trim()) { res.json([]); return; }
+  const debug = req.query.debug === 'true';
+  const results = await communityService.searchCommunityPosts(q.trim(), debug);
+  res.json(results);
+}
+
 export async function listPosts(req: Request, res: Response) {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1')) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? '20')) || 20));

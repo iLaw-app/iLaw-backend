@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, optionalAuthenticate } from '../middlewares/authenticate';
 import {
+  searchPosts,
   listPosts,
   getPost,
   createPost,
@@ -17,6 +18,7 @@ import {
 
 const router = Router();
 
+router.get('/search', searchPosts);
 router.get('/', listPosts);
 router.get('/:id', optionalAuthenticate, getPost);
 router.post('/', authenticate, createPost);

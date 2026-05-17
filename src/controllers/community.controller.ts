@@ -82,7 +82,7 @@ export async function listComments(req: Request, res: Response) {
   const postId = parseInt(String(req.params.id));
   if (isNaN(postId)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
 
-  const comments = await communityService.listComments(postId);
+  const comments = await communityService.listComments(postId, (req as AuthRequest).userId);
   res.json(comments);
 }
 

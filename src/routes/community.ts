@@ -24,7 +24,7 @@ router.delete('/:id', authenticate, deletePost);
 router.post('/:id/like', authenticate, toggleLike);
 router.post('/:id/bookmark', authenticate, toggleBookmark);
 router.post('/:id/vote', authenticate, votePoll);
-router.get('/:id/comments', listComments);
+router.get('/:id/comments', optionalAuthenticate, listComments);
 router.post('/:id/comments', authenticate, createComment);
 router.delete('/:id/comments/:commentId', authenticate, deleteComment);
 

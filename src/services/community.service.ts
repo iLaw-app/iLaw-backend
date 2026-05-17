@@ -103,13 +103,7 @@ export async function getPost(id: number, userId?: string) {
     bookmarks: post._count.bookmarks,
     bookmarked: !!bookmarked,
     poll: formatPoll(post.poll, vote?.optionIndex),
-    comments: post.comments.map((c) => ({
-      id: c.id,
-      nickname: c.author.nickname,
-      createdAt: c.createdAt,
-      content: c.content,
-      isAuthor: userId ? c.author.id === userId : false,
-    })),
+    comments: buildCommentTree(post.comments, userId),
   };
 }
 
@@ -237,25 +231,29 @@ export async function votePoll(postId: number, userId: string, optionIndex: numb
   return { data: { poll: formatPoll(poll, optionIndex) } };
 }
 
-export async function listComments(postId: number) {
-  const comments = await prisma.communityComment.findMany({
-    where: { postId },
-    orderBy: { createdAt: 'asc' },
-    include: { author: { select: { nickname: true } } },
-  });
+type CommunityCommentRow = {
+  id: number;
+  parentId: number | null;
+  createdAt: Date;
+  content: string;
+  author: { id: string; nickname: string | null };
+};
 
+function buildCommentTree(comments: CommunityCommentRow[], userId?: string) {
   const mapped = comments.map((c) => ({
     id: c.id,
     nickname: c.author.nickname,
     createdAt: c.createdAt,
     content: c.content,
     parentId: c.parentId,
+    isAuthor: userId ? c.author.id === userId : false,
     replies: [] as {
       id: number;
       nickname: string | null;
       createdAt: Date;
       content: string;
       parentId: number | null;
+      isAuthor: boolean;
     }[],
   }));
 
@@ -273,6 +271,16 @@ export async function listComments(postId: number) {
     ...comment,
     replies: comment.replies,
   }));
+}
+
+export async function listComments(postId: number, userId?: string) {
+  const comments = await prisma.communityComment.findMany({
+    where: { postId },
+    orderBy: { createdAt: 'asc' },
+    include: { author: { select: { id: true, nickname: true } } },
+  });
+
+  return buildCommentTree(comments, userId);
 }
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
@@ -298,6 +306,7 @@ export async function createComment(postId: number, userId: string, content: str
       createdAt: comment.createdAt,
       content: comment.content,
       parentId: comment.parentId,
+      isAuthor: true,
       replies: [],
     },
   };

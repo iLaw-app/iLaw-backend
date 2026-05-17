@@ -1,6 +1,4 @@
-import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
-import { getEmbedding } from './embedding.service';
 import { expandQuery } from './synonyms';
 
 export async function getCategories() {
@@ -25,49 +23,36 @@ export async function getArticleById(id: number) {
   });
 }
 
-type ArticleSearchRow = {
-  id: bigint;
-  question: string;
-  summary: string | null;
-  category_name: string;
-  category_slug: string;
-};
-
 export async function searchManualArticles(query: string, categorySlug?: string) {
-  const embedding = await getEmbedding(expandQuery(query));
-  const vectorStr = `[${embedding.join(',')}]`;
+  const terms = expandQuery(query);
 
-  const rows = await prisma.$queryRaw<ArticleSearchRow[]>(
-    categorySlug
-      ? Prisma.sql`
-          SELECT a.id, a.question, a.summary,
-                 c.name AS category_name, c.slug AS category_slug
-          FROM "ManualArticle" a
-          JOIN "ManualCategory" c ON c.id = a."categoryId"
-          WHERE a.embedding IS NOT NULL
-            AND c.slug = ${categorySlug}
-            AND a.embedding <=> ${vectorStr}::vector < 0.65
-          ORDER BY a.embedding <=> ${vectorStr}::vector
-          LIMIT 10
-        `
-      : Prisma.sql`
-          SELECT a.id, a.question, a.summary,
-                 c.name AS category_name, c.slug AS category_slug
-          FROM "ManualArticle" a
-          JOIN "ManualCategory" c ON c.id = a."categoryId"
-          WHERE a.embedding IS NOT NULL
-            AND a.embedding <=> ${vectorStr}::vector < 0.65
-          ORDER BY a.embedding <=> ${vectorStr}::vector
-          LIMIT 10
-        `
-  );
+  const articles = await prisma.manualArticle.findMany({
+    where: {
+      ...(categorySlug ? { category: { slug: categorySlug } } : {}),
+      OR: terms.flatMap((term) => [
+        { question: { contains: term } },
+        { summary: { contains: term } },
+      ]),
+    },
+    include: { category: { select: { name: true, slug: true } } },
+    take: 30,
+  });
 
-  return rows.map((r) => ({
-    id: Number(r.id),
-    question: r.question,
-    summary: r.summary,
-    category: { name: r.category_name, slug: r.category_slug },
+  const scored = articles.map((a) => ({
+    ...a,
+    score: terms.reduce(
+      (acc, term) =>
+        acc +
+        (a.question.includes(term) ? 2 : 0) +
+        ((a.summary ?? '').includes(term) ? 1 : 0),
+      0,
+    ),
   }));
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map(({ score: _score, ...rest }) => rest);
 }
 
 export async function getAgencies(slug: string, region?: string) {

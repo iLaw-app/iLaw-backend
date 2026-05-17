@@ -46,40 +46,43 @@ export async function embedQnAPost(postId: number, text: string) {
   );
 }
 
-type QnASearchRow = {
-  id: bigint;
-  title: string;
-  category: string;
-  status: string;
-  created_at: Date;
-  author_nickname: string | null;
-};
-
 export async function searchQnAPosts(query: string) {
-  const embedding = await getEmbedding(expandQuery(query));
-  const vectorStr = `[${embedding.join(',')}]`;
+  const terms = expandQuery(query);
 
-  const rows = await prisma.$queryRaw<QnASearchRow[]>(
-    Prisma.sql`
-      SELECT p.id, p.title, p.category, p.status, p."createdAt" AS created_at,
-             u.nickname AS author_nickname
-      FROM "QnAPost" p
-      JOIN "User" u ON u.id = p."authorId"
-      WHERE p.embedding IS NOT NULL
-        AND p.embedding <=> ${vectorStr}::vector < 0.65
-      ORDER BY p.embedding <=> ${vectorStr}::vector
-      LIMIT 10
-    `
-  );
+  const posts = await prisma.qnAPost.findMany({
+    where: {
+      OR: terms.flatMap((term) => [
+        { title: { contains: term } },
+        { content: { contains: term } },
+      ]),
+    },
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      category: true,
+      status: true,
+      createdAt: true,
+      author: { select: { nickname: true } },
+    },
+    take: 30,
+  });
 
-  return rows.map((r) => ({
-    id: Number(r.id),
-    title: r.title,
-    category: r.category,
-    status: r.status,
-    createdAt: r.created_at,
-    author: { nickname: r.author_nickname },
+  const scored = posts.map((p) => ({
+    ...p,
+    score: terms.reduce(
+      (acc, term) =>
+        acc +
+        (p.title.includes(term) ? 2 : 0) +
+        (p.content.includes(term) ? 1 : 0),
+      0,
+    ),
   }));
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map(({ score: _score, ...rest }) => rest);
 }
 
 export async function listUserQnAPosts(authorId: string) {

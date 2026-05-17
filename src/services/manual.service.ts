@@ -51,9 +51,13 @@ export async function searchManualArticles(query: string, categorySlug?: string,
     ),
   }));
 
-  return scored
-    .filter((a) => a.score >= 3)
-    .sort((a, b) => b.score - a.score)
+  const sorted = scored.sort((a, b) => b.score - a.score);
+  const threshold = sorted.some((a) => a.score >= 10) ? 10
+    : sorted.some((a) => a.score >= 6) ? 6
+    : 3;
+
+  return sorted
+    .filter((a) => a.score >= threshold)
     .slice(0, 10)
     .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 }

@@ -51,10 +51,15 @@ export async function searchQnAPosts(query: string, debug = false) {
 
   const posts = await prisma.qnAPost.findMany({
     where: {
-      OR: terms.flatMap((term) => [
-        { title: { contains: term } },
-        { content: { contains: term } },
-      ]),
+      OR: [
+        ...terms.flatMap((term) => [
+          { title: { contains: term } },
+          { content: { contains: term } },
+        ]),
+        ...terms.map((term) => ({
+          answer: { content: { contains: term } },
+        })),
+      ],
     },
     select: {
       id: true,
@@ -64,6 +69,7 @@ export async function searchQnAPosts(query: string, debug = false) {
       status: true,
       createdAt: true,
       author: { select: { nickname: true } },
+      answer: { select: { content: true } },
     },
     take: 30,
   });
@@ -74,7 +80,8 @@ export async function searchQnAPosts(query: string, debug = false) {
       (acc, term) =>
         acc +
         (p.title.includes(term) ? 2 : 0) +
-        (p.content.includes(term) ? 1.5 : 0),
+        (p.content.includes(term) ? 1.5 : 0) +
+        ((p.answer?.content ?? '').includes(term) ? 1 : 0),
       0,
     ),
   }));

@@ -1,14 +1,14 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQnAPosts, listUserQnAPosts, getQnAPost, createQnAPost, createQnAAnswer, embedQnAPost, searchQnAPosts, listLawyerAnswers } from '../services/qna.service';
-import { toggleQnAScrap, getQnAScrapStatus, getUserQnAScraps } from '../services/scrap.service';
+import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers } from '../services/qa.service';
+import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
 export async function searchPosts(req: AuthRequest, res: Response) {
   const q = (req.query.q as string)?.trim();
   if (!q) { res.json([]); return; }
   const debug = req.query.debug === 'true';
-  const { results, expandedTerms } = await searchQnAPosts(q, debug);
+  const { results, expandedTerms } = await searchQAPosts(q, debug);
   res.json({
     results: results.map(p => ({ ...p, author: { nickname: '익명' } })),
     expandedTerms,
@@ -16,20 +16,20 @@ export async function searchPosts(req: AuthRequest, res: Response) {
 }
 
 export async function listPosts(_req: AuthRequest, res: Response) {
-  const posts = await listQnAPosts();
+  const posts = await listQAPosts();
   res.json(posts.map(p => ({ ...p, author: { nickname: '익명' } })));
 }
 
 export async function getPost(req: AuthRequest, res: Response) {
   const id = parseInt(req.params.id as string);
   if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
-  const post = await getQnAPost(id);
+  const post = await getQAPost(id);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
   res.json({ ...post, author: { nickname: '익명' } });
 }
 
 export async function listMyPosts(req: AuthRequest, res: Response) {
-  const posts = await listUserQnAPosts(req.userId!);
+  const posts = await listUserQAPosts(req.userId!);
   res.json(posts.map(p => ({ ...p, author: { nickname: '익명' } })));
 }
 
@@ -44,28 +44,28 @@ export async function createPost(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'title, content, category are required' });
     return;
   }
-  const post = await createQnAPost(req.userId!, title, content, category, imageUrls ?? []);
+  const post = await createQAPost(req.userId!, title, content, category, imageUrls ?? []);
   createNotificationsForLawyers('new_question', '새로운 질문이 등록됐습니다!', title, post.id).catch(() => {});
-  embedQnAPost(post.id, `${title} ${content}`).catch(() => {});
+  embedQAPost(post.id, `${title} ${content}`).catch(() => {});
   res.status(201).json(post);
 }
 
 export async function scrapPost(req: AuthRequest, res: Response) {
   const postId = parseInt(req.params.id as string);
   if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
-  const result = await toggleQnAScrap(req.userId!, postId);
+  const result = await toggleQAScrap(req.userId!, postId);
   res.json(result);
 }
 
 export async function getScrapStatus(req: AuthRequest, res: Response) {
   const postId = parseInt(req.params.id as string);
   if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
-  const result = await getQnAScrapStatus(req.userId!, postId);
+  const result = await getQAScrapStatus(req.userId!, postId);
   res.json(result);
 }
 
-export async function getMyQnAScraps(req: AuthRequest, res: Response) {
-  const posts = await getUserQnAScraps(req.userId!);
+export async function getMyQAScraps(req: AuthRequest, res: Response) {
+  const posts = await getUserQAScraps(req.userId!);
   res.json(posts);
 }
 
@@ -76,9 +76,9 @@ export async function createAnswer(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }
-  const existing = await getQnAPost(postId);
+  const existing = await getQAPost(postId);
   if (!existing) { res.status(404).json({ message: 'Post not found' }); return; }
   if (existing.answer) { res.status(409).json({ message: 'Already answered' }); return; }
-  const answer = await createQnAAnswer(postId, req.userId!, content);
+  const answer = await createQAAnswer(postId, req.userId!, content);
   res.status(201).json(answer);
 }

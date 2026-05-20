@@ -6,7 +6,7 @@ import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './swagger';
 import authRouter from './routes/auth';
 import manualRouter from './routes/manual';
-import qnaRouter from './routes/qna';
+import qaRouter from './routes/qa';
 import uploadRouter from './routes/upload';
 import notificationsRouter from './routes/notifications';
 import communityRouter from './routes/community';
@@ -22,7 +22,7 @@ app.use(passport.initialize());
 
 app.use('/auth', authRouter);
 app.use('/manual', manualRouter);
-app.use('/qna', qnaRouter);
+app.use('/qa', qaRouter);
 app.use('/upload', uploadRouter);
 app.use('/notifications', notificationsRouter);
 app.use('/community', communityRouter);

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/authenticate';
-import { listPosts, listMyPosts, listMyAnswers, getPost, createPost, createAnswer, scrapPost, getScrapStatus, getMyQnAScraps, searchPosts } from '../controllers/qna.controller';
+import { listPosts, listMyPosts, listMyAnswers, getPost, createPost, createAnswer, scrapPost, getScrapStatus, getMyQAScraps, searchPosts } from '../controllers/qa.controller';
 
 const router = Router();
 
@@ -8,7 +8,7 @@ router.get('/', listPosts);
 router.get('/search', searchPosts);
 router.get('/mine', authenticate, listMyPosts);
 router.get('/my-answers', authenticate, listMyAnswers);
-router.get('/my-scraps', authenticate, getMyQnAScraps);
+router.get('/my-scraps', authenticate, getMyQAScraps);
 router.get('/:id', getPost);
 router.get('/:id/scrap', authenticate, getScrapStatus);
 router.post('/', authenticate, createPost);

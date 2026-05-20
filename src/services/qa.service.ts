@@ -3,7 +3,7 @@ import prisma from '../prisma/client';
 import { getEmbedding } from './embedding.service';
 import { expandQuery } from './synonyms';
 
-export async function listQnAPosts() {
+export async function listQAPosts() {
   return prisma.qnAPost.findMany({
     orderBy: { createdAt: 'desc' },
     select: {
@@ -18,7 +18,7 @@ export async function listQnAPosts() {
   });
 }
 
-export async function getQnAPost(id: number) {
+export async function getQAPost(id: number) {
   return prisma.qnAPost.findUnique({
     where: { id },
     include: {
@@ -32,13 +32,13 @@ export async function getQnAPost(id: number) {
   });
 }
 
-export async function createQnAPost(authorId: string, title: string, content: string, category: string, imageUrls: string[] = []) {
+export async function createQAPost(authorId: string, title: string, content: string, category: string, imageUrls: string[] = []) {
   return prisma.qnAPost.create({
     data: { authorId, title, content, category, imageUrls },
   });
 }
 
-export async function embedQnAPost(postId: number, text: string) {
+export async function embedQAPost(postId: number, text: string) {
   const embedding = await getEmbedding(text);
   const vectorStr = `[${embedding.join(',')}]`;
   await prisma.$executeRaw(
@@ -46,7 +46,7 @@ export async function embedQnAPost(postId: number, text: string) {
   );
 }
 
-export async function searchQnAPosts(query: string, debug = false) {
+export async function searchQAPosts(query: string, debug = false) {
   const terms = expandQuery(query);
 
   const posts = await prisma.qnAPost.findMany({
@@ -99,7 +99,7 @@ export async function searchQnAPosts(query: string, debug = false) {
   return { results, expandedTerms: terms };
 }
 
-export async function listUserQnAPosts(authorId: string) {
+export async function listUserQAPosts(authorId: string) {
   return prisma.qnAPost.findMany({
     where: { authorId },
     orderBy: { createdAt: 'desc' },
@@ -141,7 +141,7 @@ export async function listLawyerAnswers(lawyerId: string) {
   }));
 }
 
-export async function createQnAAnswer(postId: number, lawyerId: string, content: string) {
+export async function createQAAnswer(postId: number, lawyerId: string, content: string) {
   const [answer] = await prisma.$transaction([
     prisma.qnAAnswer.create({ data: { postId, lawyerId, content } }),
     prisma.qnAPost.update({ where: { id: postId }, data: { status: 'answered' } }),

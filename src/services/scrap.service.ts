@@ -38,7 +38,7 @@ export async function getUserScraps(userId: string) {
   return scraps.map(s => s.article);
 }
 
-export async function toggleQnAScrap(userId: string, postId: number): Promise<{ scrapped: boolean }> {
+export async function toggleQAScrap(userId: string, postId: number): Promise<{ scrapped: boolean }> {
   const existing = await prisma.qnAScrap.findUnique({
     where: { userId_postId: { userId, postId } },
   });
@@ -50,7 +50,7 @@ export async function toggleQnAScrap(userId: string, postId: number): Promise<{ 
   return { scrapped: true };
 }
 
-export async function getQnAScrapStatus(userId: string, postId: number) {
+export async function getQAScrapStatus(userId: string, postId: number) {
   const existing = await prisma.qnAScrap.findUnique({
     where: { userId_postId: { userId, postId } },
   });
@@ -58,7 +58,7 @@ export async function getQnAScrapStatus(userId: string, postId: number) {
   return { scrapped: !!existing, count };
 }
 
-export async function getUserQnAScraps(userId: string) {
+export async function getUserQAScraps(userId: string) {
   const scraps = await prisma.qnAScrap.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },

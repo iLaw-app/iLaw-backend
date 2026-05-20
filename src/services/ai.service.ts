@@ -59,12 +59,14 @@ export async function diagnose(message: string, nickname?: string): Promise<{
       {
         role: 'system',
         content: `당신은 법률 정보 서비스의 AI 어시스턴트입니다.
-아래 매뉴얼과 Q&A 목록을 읽고 두 가지를 수행하세요.
-1. ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
-2. 목록 중 사용자 상황과 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요. 관련 없으면 더 적게 선택해도 됩니다.
+아래 매뉴얼과 Q&A 목록을 읽고 세 가지를 수행하세요.
+1. 사용자 메시지가 본인이 겪고 있는 법률 관련 상황 설명인지 판단하세요. 인사말·잡담·일반 법률 지식 질문·무관한 내용이면 false, 본인 상황이면 true입니다.
+2. isRelevant가 true일 때만: ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
+3. isRelevant가 true일 때만: 목록 중 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요.
 
 반드시 다음 JSON 형식으로만 응답하세요:
-{"situationSummary":"...","references":[{"type":"manual"|"qa","id":숫자}]}
+{"isRelevant":true,"situationSummary":"...","references":[{"type":"manual"|"qa","id":숫자}]}
+isRelevant가 false이면: {"isRelevant":false,"situationSummary":"","references":[]}
 
 === 매뉴얼 목록 ===
 ${manualList}
@@ -81,6 +83,15 @@ ${qaList}`,
 
   try {
     const parsed = JSON.parse(step1Res.choices[0].message.content ?? '{}');
+
+    if (parsed.isRelevant === false) {
+      return {
+        situationSummary: '',
+        legalAdvice: `${userLabel}의 상황을 좀 더 자세히 말씀해 주시면 도움을 드릴 수 있어요!\n\n예를 들어 이렇게 알려주세요:\n• 어떤 일이 있었는지\n• 상대방이 누구인지 (사장님, 집주인, 친구 등)\n• 어떻게 해결하고 싶은지`,
+        suggestions: [],
+      };
+    }
+
     situationSummary = parsed.situationSummary ?? '';
     references = (parsed.references ?? []).filter(
       (r: any) => (r.type === 'manual' || r.type === 'qa') && typeof r.id === 'number'

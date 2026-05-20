@@ -35,13 +35,14 @@ async function getQACache(): Promise<QAItem[]> {
 
 type Reference = { type: 'manual' | 'qa'; id: number };
 
-export async function diagnose(message: string): Promise<{
+export async function diagnose(message: string, nickname?: string): Promise<{
   situationSummary: string;
   legalAdvice: string;
   suggestions: { type: 'manual' | 'qa'; id: number; label: string }[];
 }> {
   const manuals = manualCache;
   const qaPosts = await getQACache();
+  const userLabel = nickname ? `${nickname}님` : '사용자';
 
   // ── GPT 1차: 상황 요약 + 관련 항목 선택 ──
   const manualList = manuals
@@ -59,7 +60,7 @@ export async function diagnose(message: string): Promise<{
         role: 'system',
         content: `당신은 법률 정보 서비스의 AI 어시스턴트입니다.
 아래 매뉴얼과 Q&A 목록을 읽고 두 가지를 수행하세요.
-1. 사용자 상황을 2~3문장으로 요약하세요.
+1. ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
 2. 목록 중 사용자 상황과 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요. 관련 없으면 더 적게 선택해도 됩니다.
 
 반드시 다음 JSON 형식으로만 응답하세요:
@@ -126,9 +127,14 @@ ${qaList}`,
       messages: [
         {
           role: 'system',
-          content: `당신은 법률 정보 서비스의 AI 어시스턴트입니다.
-아래 법률 콘텐츠(매뉴얼 본문 및 Q&A 변호사 답변)만을 근거로 사용자 상황에 법적 안내를 2~4문장으로 제공하세요.
-제공된 내용 외의 정보는 사용하지 마세요.
+          content: `당신은 법률 정보 서비스의 따뜻한 AI 어시스턴트입니다.
+아래 법률 콘텐츠(매뉴얼 본문 및 Q&A 변호사 답변)만을 근거로 안내를 제공하세요.
+
+반드시 다음 순서로 응답하세요:
+1. 먼저 ${userLabel}의 상황에 진심으로 공감하는 한 문장으로 시작하세요. (예: "정말 힘드셨겠어요.", "많이 당황스러우셨겠어요.")
+2. 이어서 친근하고 따뜻한 말투로 법적 안내를 2~3문장 제공하세요.
+
+제공된 법률 콘텐츠 외의 정보는 사용하지 마세요.
 심각한 상황이라면 전문 변호사 상담을 권유하세요.
 텍스트로만 응답하세요.
 

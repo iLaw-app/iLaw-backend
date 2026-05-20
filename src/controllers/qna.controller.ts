@@ -8,13 +8,16 @@ export async function searchPosts(req: AuthRequest, res: Response) {
   const q = (req.query.q as string)?.trim();
   if (!q) { res.json([]); return; }
   const debug = req.query.debug === 'true';
-  const results = await searchQnAPosts(q, debug);
-  res.json(results);
+  const { results, expandedTerms } = await searchQnAPosts(q, debug);
+  res.json({
+    results: results.map(p => ({ ...p, author: { nickname: '익명' } })),
+    expandedTerms,
+  });
 }
 
 export async function listPosts(_req: AuthRequest, res: Response) {
   const posts = await listQnAPosts();
-  res.json(posts);
+  res.json(posts.map(p => ({ ...p, author: { nickname: '익명' } })));
 }
 
 export async function getPost(req: AuthRequest, res: Response) {
@@ -22,20 +25,12 @@ export async function getPost(req: AuthRequest, res: Response) {
   if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
   const post = await getQnAPost(id);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
-  const currentYear = new Date().getFullYear();
-  res.json({
-    ...post,
-    author: {
-      ...post.author,
-      age: post.author.birthYear ? currentYear - post.author.birthYear + 1 : null,
-      gender: post.author.gender === 'male' ? '남성' : post.author.gender === 'female' ? '여성' : null,
-    },
-  });
+  res.json({ ...post, author: { nickname: '익명' } });
 }
 
 export async function listMyPosts(req: AuthRequest, res: Response) {
   const posts = await listUserQnAPosts(req.userId!);
-  res.json(posts);
+  res.json(posts.map(p => ({ ...p, author: { nickname: '익명' } })));
 }
 
 export async function listMyAnswers(req: AuthRequest, res: Response) {

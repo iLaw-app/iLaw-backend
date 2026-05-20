@@ -42,6 +42,7 @@ model User {
   communityComments CommunityComment[]
   communityCommentLikes CommunityCommentLike[]
   communityCommentAuthorLabels CommunityCommentAuthorLabel[]
+  aiChatHistories              AiChatHistory[]
 
   @@unique([provider, providerId])
 }
@@ -219,6 +220,17 @@ model ArticleScrap {
   createdAt DateTime      @default(now())
 
   @@unique([userId, articleId])
+}
+
+model AiChatHistory {
+  id               Int      @id @default(autoincrement())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  question         String
+  situationSummary String
+  legalAdvice      String
+  suggestions      Json
+  createdAt        DateTime @default(now())
 }
 
 model CommunityCommentAuthorLabel {

@@ -21,7 +21,40 @@ export async function chat(req: AuthRequest, res: Response, next: NextFunction) 
     }
 
     const result = await diagnose(message.trim(), nickname);
+
+    if (req.userId && result.situationSummary) {
+      prisma.aiChatHistory.create({
+        data: {
+          userId: req.userId,
+          question: message.trim(),
+          situationSummary: result.situationSummary,
+          legalAdvice: result.legalAdvice,
+          suggestions: result.suggestions,
+        },
+      }).catch(() => {});
+    }
+
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getHistory(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    const history = await prisma.aiChatHistory.findMany({
+      where: { userId: req.userId! },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        question: true,
+        situationSummary: true,
+        legalAdvice: true,
+        suggestions: true,
+        createdAt: true,
+      },
+    });
+    res.json(history);
   } catch (err) {
     next(err);
   }

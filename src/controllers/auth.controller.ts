@@ -28,7 +28,7 @@ export async function completeProfile(req: AuthRequest, res: Response) {
   const {
     nickname,
     region,
-    birthYear,
+    birthDate,
     gender,
     agreedTermsOfService,
     agreedPrivacyPolicy,
@@ -37,7 +37,7 @@ export async function completeProfile(req: AuthRequest, res: Response) {
   } = req.body as {
     nickname?: string;
     region?: string;
-    birthYear?: number;
+    birthDate?: string;
     gender?: string;
     agreedTermsOfService?: boolean;
     agreedPrivacyPolicy?: boolean;
@@ -45,8 +45,8 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     agreedMarketing?: boolean;
   };
 
-  if (!nickname || !region || !birthYear || !gender) {
-    res.status(400).json({ message: 'nickname, region, birthYear, gender are required' });
+  if (!nickname || !region || !birthDate || !gender) {
+    res.status(400).json({ message: 'nickname, region, birthDate, gender are required' });
     return;
   }
   if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
@@ -62,13 +62,19 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     return;
   }
 
+  const parsedBirthDate = new Date(birthDate);
+  if (isNaN(parsedBirthDate.getTime())) {
+    res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
+    return;
+  }
+
   try {
     const updated = await prisma.user.update({
       where: { id: req.userId },
       data: {
         nickname,
         region,
-        birthYear,
+        birthDate: parsedBirthDate,
         gender,
         agreedTermsOfService,
         agreedPrivacyPolicy,
@@ -82,7 +88,7 @@ export async function completeProfile(req: AuthRequest, res: Response) {
         email: true,
         nickname: true,
         region: true,
-        birthYear: true,
+        birthDate: true,
         gender: true,
         profileCompleted: true,
       },
@@ -142,7 +148,7 @@ export async function getMe(req: AuthRequest, res: Response) {
         email: true,
         nickname: true,
         region: true,
-        birthYear: true,
+        birthDate: true,
         gender: true,
         provider: true,
         profileCompleted: true,
@@ -165,16 +171,16 @@ export async function getMe(req: AuthRequest, res: Response) {
 }
 
 export async function updateProfile(req: AuthRequest, res: Response) {
-  const { nickname, region, birthYear, gender, affiliation } = req.body as {
+  const { nickname, region, birthDate, gender, affiliation } = req.body as {
     nickname?: string;
     region?: string;
-    birthYear?: number;
+    birthDate?: string;
     gender?: string;
     affiliation?: string;
   };
 
-  if (!nickname || !region || !birthYear || !gender) {
-    res.status(400).json({ message: 'nickname, region, birthYear, gender are required' });
+  if (!nickname || !region || !birthDate || !gender) {
+    res.status(400).json({ message: 'nickname, region, birthDate, gender are required' });
     return;
   }
   if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
@@ -186,11 +192,17 @@ export async function updateProfile(req: AuthRequest, res: Response) {
     return;
   }
 
+  const parsedBirthDate = new Date(birthDate);
+  if (isNaN(parsedBirthDate.getTime())) {
+    res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
+    return;
+  }
+
   try {
     const updated = await prisma.user.update({
       where: { id: req.userId },
-      data: { nickname, region, birthYear, gender, affiliation: affiliation ?? null },
-      select: { id: true, nickname: true, region: true, birthYear: true, gender: true, affiliation: true },
+      data: { nickname, region, birthDate: parsedBirthDate, gender, affiliation: affiliation ?? null },
+      select: { id: true, nickname: true, region: true, birthDate: true, gender: true, affiliation: true },
     });
     res.json(updated);
   } catch (e: unknown) {

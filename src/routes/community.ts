@@ -9,6 +9,7 @@ import {
   deletePost,
   toggleLike,
   toggleBookmark,
+  getMyBookmarks,
   votePoll,
   listComments,
   createComment,
@@ -19,6 +20,7 @@ import {
 const router = Router();
 
 router.get('/search', searchPosts);
+router.get('/my-bookmarks', authenticate, getMyBookmarks);
 router.get('/', listPosts);
 router.get('/:id', optionalAuthenticate, getPost);
 router.post('/', authenticate, createPost);

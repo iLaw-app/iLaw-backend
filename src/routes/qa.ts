@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate, optionalAuthenticate } from '../middlewares/authenticate';
-import { listPosts, listMyPosts, listMyAnswers, getPost, createPost, createAnswer, scrapPost, getScrapStatus, getMyQAScraps, searchPosts, deletePost } from '../controllers/qa.controller';
+import { listPosts, listMyPosts, listMyAnswers, getPost, createPost, createAnswer, scrapPost, getScrapStatus, getMyQAScraps, searchPosts, deletePost, updateAnswer } from '../controllers/qa.controller';
 
 const router = Router();
 
@@ -15,5 +15,6 @@ router.post('/', authenticate, createPost);
 router.post('/:id/scrap', authenticate, scrapPost);
 router.post('/:id/answer', authenticate, createAnswer);
 router.delete('/:id', authenticate, deletePost);
+router.patch('/:id/answer', authenticate, updateAnswer);
 
 export default router;

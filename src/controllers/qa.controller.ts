@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost } from '../services/qa.service';
+import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
@@ -26,7 +26,23 @@ export async function getPost(req: AuthRequest, res: Response) {
   const post = await getQAPost(id);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
   const isAuthor = req.userId ? post.authorId === req.userId : false;
-  res.json({ ...post, author: { nickname: '익명' }, isAuthor });
+  const answer = post.answer ? {
+    ...post.answer,
+    isMyAnswer: req.userId ? post.answer.lawyerId === req.userId : false,
+  } : null;
+  res.json({ ...post, author: { nickname: '익명' }, isAuthor, answer });
+}
+
+export async function updateAnswer(req: AuthRequest, res: Response) {
+  const postId = parseInt(req.params.id as string);
+  const { content } = req.body as { content?: string };
+  if (isNaN(postId) || !content?.trim()) {
+    res.status(400).json({ message: 'postId and content are required' });
+    return;
+  }
+  const updated = await updateQAAnswer(postId, req.userId!, content);
+  if (!updated) { res.status(403).json({ message: 'Forbidden or not found' }); return; }
+  res.json({ success: true });
 }
 
 export async function deletePost(req: AuthRequest, res: Response) {

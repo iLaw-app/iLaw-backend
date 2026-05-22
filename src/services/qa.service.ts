@@ -31,7 +31,7 @@ export async function getQAPost(id: number) {
   const post = await prisma.qnAPost.findUnique({
     where: { id },
     include: {
-      author: { select: { nickname: true, birthDate: true } },
+      author: { select: { nickname: true, birthDate: true, region: true, gender: true } },
       answer: {
         include: {
           lawyer: { select: { nickname: true, role: true, affiliation: true } },
@@ -47,8 +47,17 @@ export async function getQAPost(id: number) {
     author: {
       nickname: post.author.nickname,
       age: post.author.birthDate ? calcKoreanAge(post.author.birthDate) : null,
+      region: post.author.region,
+      gender: post.author.gender,
     },
   };
+}
+
+export async function updateQAAnswer(postId: number, lawyerId: string, content: string): Promise<boolean> {
+  const answer = await prisma.qnAAnswer.findUnique({ where: { postId }, select: { lawyerId: true } });
+  if (!answer || answer.lawyerId !== lawyerId) return false;
+  await prisma.qnAAnswer.update({ where: { postId }, data: { content } });
+  return true;
 }
 
 export async function createQAPost(authorId: string, title: string, content: string, category: string, imageUrls: string[] = []) {

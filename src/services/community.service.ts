@@ -370,7 +370,7 @@ export async function listComments(postId: number, userId?: string) {
 }
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
-  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true } });
+  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true } });
   if (!post) return { error: 'not_found' as const };
   if (parentId) {
     const parent = await prisma.communityComment.findUnique({
@@ -391,39 +391,21 @@ export async function createComment(postId: number, userId: string, content: str
     create: { postId, userId },
   });
 
-  const [comments, labels] = await Promise.all([
-    prisma.communityComment.findMany({
-      where: { postId },
-      orderBy: { createdAt: 'asc' },
-      include: {
-        author: { select: { id: true, nickname: true } },
-        likes: { where: { userId }, select: { userId: true } },
-        _count: { select: { likes: true } },
-      },
-    }),
-    fetchLabelMap(postId),
-  ]);
-  const anonymized = buildCommentTree(comments, labels, userId);
-  const findComment = (items: typeof anonymized): (typeof anonymized)[number] | undefined => {
-    for (const item of items) {
-      if (item.id === comment.id) return item;
-      const reply = findComment(item.replies);
-      if (reply) return reply;
-    }
-    return undefined;
-  };
-  const created = findComment(anonymized);
+  const labels = await fetchLabelMap(postId);
+  const isPostAuthor = userId === post.authorId;
+  const nickname = isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(userId) ?? '?'}`;
 
   return {
     data: {
       id: comment.id,
-      nickname: created?.nickname ?? '익명',
+      nickname,
       createdAt: comment.createdAt,
       content: comment.content,
-      likes: created?.likes ?? 0,
-      liked: created?.liked ?? false,
+      likes: 0,
+      liked: false,
       parentId: comment.parentId,
       isAuthor: true,
+      isPostAuthor,
       replies: [],
     },
   };

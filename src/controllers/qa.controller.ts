@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers } from '../services/qa.service';
+import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
@@ -25,7 +25,16 @@ export async function getPost(req: AuthRequest, res: Response) {
   if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
   const post = await getQAPost(id);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
-  res.json({ ...post, author: { nickname: '익명' } });
+  const isAuthor = req.userId ? post.authorId === req.userId : false;
+  res.json({ ...post, author: { nickname: '익명' }, isAuthor });
+}
+
+export async function deletePost(req: AuthRequest, res: Response) {
+  const id = parseInt(req.params.id as string);
+  if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const deleted = await deleteQAPost(id, req.userId!);
+  if (!deleted) { res.status(403).json({ message: 'Forbidden or not found' }); return; }
+  res.status(204).send();
 }
 
 export async function listMyPosts(req: AuthRequest, res: Response) {

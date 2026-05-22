@@ -160,6 +160,13 @@ export async function listLawyerAnswers(lawyerId: string) {
   }));
 }
 
+export async function deleteQAPost(id: number, userId: string): Promise<boolean> {
+  const post = await prisma.qnAPost.findUnique({ where: { id }, select: { authorId: true } });
+  if (!post || post.authorId !== userId) return false;
+  await prisma.qnAPost.delete({ where: { id } });
+  return true;
+}
+
 export async function createQAAnswer(postId: number, lawyerId: string, content: string) {
   const [answer] = await prisma.$transaction([
     prisma.qnAAnswer.create({ data: { postId, lawyerId, content } }),

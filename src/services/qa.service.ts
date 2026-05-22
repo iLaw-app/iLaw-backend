@@ -18,11 +18,20 @@ export async function listQAPosts() {
   });
 }
 
+function calcKoreanAge(birthDate: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const hasBirthdayPassed =
+    today.getMonth() > birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+  return hasBirthdayPassed ? age : age - 1;
+}
+
 export async function getQAPost(id: number) {
-  return prisma.qnAPost.findUnique({
+  const post = await prisma.qnAPost.findUnique({
     where: { id },
     include: {
-      author: { select: { nickname: true } },
+      author: { select: { nickname: true, birthDate: true } },
       answer: {
         include: {
           lawyer: { select: { nickname: true, role: true, affiliation: true } },
@@ -30,6 +39,16 @@ export async function getQAPost(id: number) {
       },
     },
   });
+
+  if (!post) return null;
+
+  return {
+    ...post,
+    author: {
+      nickname: post.author.nickname,
+      age: post.author.birthDate ? calcKoreanAge(post.author.birthDate) : null,
+    },
+  };
 }
 
 export async function createQAPost(authorId: string, title: string, content: string, category: string, imageUrls: string[] = []) {

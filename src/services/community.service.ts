@@ -115,7 +115,7 @@ export async function getPost(id: number, userId?: string) {
     bookmarks: post._count.bookmarks,
     bookmarked: !!bookmarked,
     poll: formatPoll(post.poll, vote?.optionIndex),
-    comments: buildCommentTree(post.comments, labels, userId),
+    comments: buildCommentTree(post.comments, labels, post.authorId, userId),
   };
 }
 
@@ -138,7 +138,7 @@ export async function createPost(
 export async function updatePost(
   id: number,
   userId: string,
-  data: { title?: string; content?: string },
+  data: { title?: string; content?: string; imageUrls?: string[] },
 ) {
   const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true } });
   if (!post) return { error: 'not_found' as const };
@@ -146,8 +146,12 @@ export async function updatePost(
 
   const updated = await prisma.communityPost.update({
     where: { id },
-    data: { title: data.title, content: data.content },
-    select: { id: true, title: true, content: true, updatedAt: true },
+    data: {
+      title: data.title,
+      content: data.content,
+      ...(data.imageUrls !== undefined && { imageUrls: data.imageUrls }),
+    },
+    select: { id: true, title: true, content: true, imageUrls: true, updatedAt: true },
   });
   return { data: updated };
 }
@@ -197,6 +201,39 @@ export async function toggleBookmark(postId: number, userId: string) {
   await prisma.communityBookmark.create({ data: { userId, postId } });
   const count = await prisma.communityBookmark.count({ where: { postId } });
   return { data: { bookmarked: true, count } };
+}
+
+export async function getMyBookmarks(userId: string) {
+  const bookmarks = await prisma.communityBookmark.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      post: {
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+          imageUrls: true,
+          _count: { select: { likes: true, bookmarks: true, comments: true } },
+        },
+      },
+    },
+  });
+
+  return bookmarks.map(({ post }) => ({
+    id: post.id,
+    nickname: ANONYMOUS_POST_AUTHOR,
+    title: post.title,
+    content: post.content,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    imageUrls: post.imageUrls,
+    likes: post._count.likes,
+    bookmarks: post._count.bookmarks,
+    comments: post._count.comments,
+  }));
 }
 
 export async function votePoll(postId: number, userId: string, optionIndex: number) {
@@ -262,21 +299,31 @@ type CommunityCommentResponse = {
   liked: boolean;
   parentId: number | null;
   isAuthor: boolean;
+  isPostAuthor: boolean;
   replies: CommunityCommentResponse[];
 };
 
-function buildCommentTree(comments: CommunityCommentRow[], labels: Map<string, number>, userId?: string) {
-  const mapped: CommunityCommentResponse[] = comments.map((c) => ({
-    id: c.id,
-    nickname: `익명${labels.get(c.author.id) ?? '?'}`,
-    createdAt: c.createdAt,
-    content: c.content,
-    likes: c._count.likes,
-    liked: !!c.likes?.length,
-    parentId: c.parentId,
-    isAuthor: userId ? c.author.id === userId : false,
-    replies: [],
-  }));
+function buildCommentTree(
+  comments: CommunityCommentRow[],
+  labels: Map<string, number>,
+  postAuthorId: string,
+  userId?: string,
+) {
+  const mapped: CommunityCommentResponse[] = comments.map((c) => {
+    const isPostAuthor = c.author.id === postAuthorId;
+    return {
+      id: c.id,
+      nickname: isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(c.author.id) ?? '?'}`,
+      createdAt: c.createdAt,
+      content: c.content,
+      likes: c._count.likes,
+      liked: !!c.likes?.length,
+      parentId: c.parentId,
+      isAuthor: userId ? c.author.id === userId : false,
+      isPostAuthor,
+      replies: [],
+    };
+  });
 
   const byId = new Map(mapped.map((c) => [c.id, c]));
   const roots: typeof mapped = [];
@@ -303,7 +350,8 @@ async function fetchLabelMap(postId: number): Promise<Map<string, number>> {
 }
 
 export async function listComments(postId: number, userId?: string) {
-  const [comments, labels] = await Promise.all([
+  const [post, comments, labels] = await Promise.all([
+    prisma.communityPost.findUnique({ where: { id: postId }, select: { authorId: true } }),
     prisma.communityComment.findMany({
       where: { postId },
       orderBy: { createdAt: 'asc' },
@@ -316,7 +364,9 @@ export async function listComments(postId: number, userId?: string) {
     fetchLabelMap(postId),
   ]);
 
-  return buildCommentTree(comments, labels, userId);
+  if (!post) return [];
+
+  return buildCommentTree(comments, labels, post.authorId, userId);
 }
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {

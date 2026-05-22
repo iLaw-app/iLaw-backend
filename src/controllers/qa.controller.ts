@@ -30,7 +30,7 @@ export async function getPost(req: AuthRequest, res: Response) {
     ...post.answer,
     isMyAnswer: req.userId ? post.answer.lawyerId === req.userId : false,
   } : null;
-  res.json({ ...post, author: { nickname: '익명' }, isAuthor, answer });
+  res.json({ ...post, author: { ...post.author, nickname: '익명' }, isAuthor, answer });
 }
 
 export async function updateAnswer(req: AuthRequest, res: Response) {

@@ -84,7 +84,7 @@ model Agency {
 
 model QnAPost {
   id        Int        @id @default(autoincrement())
-  author    User       @relation(fields: [authorId], references: [id])
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
   authorId  String
   title      String
   content    String
@@ -102,7 +102,7 @@ model QnAAnswer {
   id        Int      @id @default(autoincrement())
   post      QnAPost  @relation(fields: [postId], references: [id])
   postId    Int      @unique
-  lawyer    User     @relation(fields: [lawyerId], references: [id])
+  lawyer    User     @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
   lawyerId  String
   content   String
   createdAt DateTime @default(now())
@@ -111,9 +111,9 @@ model QnAAnswer {
 
 model QnAScrap {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  post      QnAPost  @relation(fields: [postId], references: [id])
+  post      QnAPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId    Int
   createdAt DateTime @default(now())
 
@@ -213,9 +213,9 @@ model CommunityCommentLike {
 
 model ArticleScrap {
   id        Int           @id @default(autoincrement())
-  user      User          @relation(fields: [userId], references: [id])
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  article   ManualArticle @relation(fields: [articleId], references: [id])
+  article   ManualArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
   articleId Int
   createdAt DateTime      @default(now())
 

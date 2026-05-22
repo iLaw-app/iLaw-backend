@@ -1,4 +1,5 @@
 import prisma from '../prisma/client';
+import { expandQuery } from './synonyms';
 
 type PollOption = { label: string; votes: number };
 type PollData = { options: PollOption[] };
@@ -46,6 +47,7 @@ export async function listPosts(page: number, limit: number) {
         content: true,
         poll: true,
         createdAt: true,
+        updatedAt: true,
         author: { select: { nickname: true } },
         _count: { select: { likes: true, comments: true, bookmarks: true } },
       },
@@ -58,6 +60,7 @@ export async function listPosts(page: number, limit: number) {
       id: p.id,
       nickname: ANONYMOUS_POST_AUTHOR,
       createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
       title: p.title,
       content: p.content,
       likes: p._count.likes,
@@ -103,6 +106,7 @@ export async function getPost(id: number, userId?: string) {
     nickname: ANONYMOUS_POST_AUTHOR,
     isAuthor: userId ? post.authorId === userId : false,
     createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
     title: post.title,
     content: post.content,
     imageUrls: post.imageUrls,
@@ -385,6 +389,54 @@ export async function deleteComment(commentId: number, userId: string) {
 
   await prisma.communityComment.delete({ where: { id: commentId } });
   return { data: true };
+}
+
+export async function searchCommunityPosts(query: string, debug = false) {
+  const terms = expandQuery(query);
+
+  const posts = await prisma.communityPost.findMany({
+    where: {
+      OR: terms.flatMap((term) => [
+        { title: { contains: term } },
+        { content: { contains: term } },
+      ]),
+    },
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      createdAt: true,
+      _count: { select: { likes: true, comments: true, bookmarks: true } },
+    },
+    take: 30,
+  });
+
+  const scored = posts.map((p) => ({
+    ...p,
+    score: terms.reduce(
+      (acc, term) =>
+        acc +
+        (p.title.includes(term) ? 2 : 0) +
+        ((p.content ?? '').includes(term) ? 1.5 : 0),
+      0,
+    ),
+  }));
+
+  const sorted = scored.sort((a, b) => b.score - a.score);
+  const threshold = sorted.some((p) => p.score >= 10) ? 10
+    : sorted.some((p) => p.score >= 6) ? 6
+    : 3;
+
+  const results = sorted
+    .filter((p) => p.score >= threshold)
+    .slice(0, 10)
+    .map(({ score, _count, ...rest }) =>
+      debug
+        ? { ...rest, nickname: ANONYMOUS_POST_AUTHOR, likes: _count.likes, bookmarks: _count.bookmarks, comments: _count.comments, score }
+        : { ...rest, nickname: ANONYMOUS_POST_AUTHOR, likes: _count.likes, bookmarks: _count.bookmarks, comments: _count.comments },
+    );
+
+  return { results, expandedTerms: terms };
 }
 
 export async function toggleCommentLike(commentId: number, userId: string) {

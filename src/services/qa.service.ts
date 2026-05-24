@@ -5,7 +5,7 @@ import { expandQuery } from './synonyms';
 
 export async function listQAPosts() {
   return prisma.qnAPost.findMany({
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     select: {
       id: true,
       title: true,

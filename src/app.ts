@@ -11,6 +11,7 @@ import uploadRouter from './routes/upload';
 import notificationsRouter from './routes/notifications';
 import communityRouter from './routes/community';
 import aiRouter from './routes/ai';
+import homeRouter from './routes/home';
 import { loadManualCache } from './services/ai.service';
 import { errorHandler } from './middlewares/errorHandler';
 
@@ -27,6 +28,7 @@ app.use('/upload', uploadRouter);
 app.use('/notifications', notificationsRouter);
 app.use('/community', communityRouter);
 app.use('/ai', aiRouter);
+app.use('/home', homeRouter);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {

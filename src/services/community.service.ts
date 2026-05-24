@@ -104,7 +104,7 @@ export async function getPost(id: number, userId?: string) {
   return {
     id: post.id,
     nickname: ANONYMOUS_POST_AUTHOR,
-    isAuthor: userId ? post.authorId === userId : false,
+    isAuthor: userId && post.authorId ? post.authorId === userId : false,
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
     title: post.title,
@@ -285,7 +285,7 @@ type CommunityCommentRow = {
   parentId: number | null;
   createdAt: Date;
   content: string;
-  author: { id: string; nickname: string | null };
+  author: { id: string; nickname: string | null } | null;
   likes?: { userId: string }[];
   _count: { likes: number };
 };
@@ -306,11 +306,25 @@ type CommunityCommentResponse = {
 function buildCommentTree(
   comments: CommunityCommentRow[],
   labels: Map<string, number>,
-  postAuthorId: string,
+  postAuthorId: string | null,
   userId?: string,
 ) {
   const mapped: CommunityCommentResponse[] = comments.map((c) => {
-    const isPostAuthor = c.author.id === postAuthorId;
+    if (!c.author) {
+      return {
+        id: c.id,
+        nickname: ANONYMOUS_POST_AUTHOR,
+        createdAt: c.createdAt,
+        content: c.content,
+        likes: c._count.likes,
+        liked: !!c.likes?.length,
+        parentId: c.parentId,
+        isAuthor: false,
+        isPostAuthor: false,
+        replies: [],
+      };
+    }
+    const isPostAuthor = !!postAuthorId && c.author.id === postAuthorId;
     return {
       id: c.id,
       nickname: isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(c.author.id) ?? '?'}`,
@@ -392,7 +406,7 @@ export async function createComment(postId: number, userId: string, content: str
   });
 
   const labels = await fetchLabelMap(postId);
-  const isPostAuthor = userId === post.authorId;
+  const isPostAuthor = !!post.authorId && userId === post.authorId;
   const nickname = isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(userId) ?? '?'}`;
 
   return {

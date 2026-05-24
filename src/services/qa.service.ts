@@ -44,12 +44,14 @@ export async function getQAPost(id: number) {
 
   return {
     ...post,
-    author: {
-      nickname: post.author.nickname,
-      birthDate: post.author.birthDate ? post.author.birthDate.toISOString().slice(0, 10) : null,
-      region: post.author.region,
-      gender: post.author.gender,
-    },
+    author: post.author
+      ? {
+          nickname: post.author.nickname,
+          birthDate: post.author.birthDate ? post.author.birthDate.toISOString().slice(0, 10) : null,
+          region: post.author.region,
+          gender: post.author.gender,
+        }
+      : null,
   };
 }
 

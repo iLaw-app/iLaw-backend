@@ -84,8 +84,8 @@ model Agency {
 
 model QnAPost {
   id        Int        @id @default(autoincrement())
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  authorId  String
+  author    User?      @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId  String?
   title      String
   content    String
   category   String
@@ -102,8 +102,8 @@ model QnAAnswer {
   id        Int      @id @default(autoincrement())
   post      QnAPost  @relation(fields: [postId], references: [id])
   postId    Int      @unique
-  lawyer    User     @relation(fields: [lawyerId], references: [id], onDelete: Cascade)
-  lawyerId  String
+  lawyer    User?    @relation(fields: [lawyerId], references: [id], onDelete: SetNull)
+  lawyerId  String?
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,8 +134,8 @@ model Notification {
 
 model CommunityPost {
   id        Int      @id @default(autoincrement())
-  authorId  String
-  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
   title     String
   content   String?
   poll      Json?
@@ -187,10 +187,10 @@ model CommunityPollVote {
 model CommunityComment {
   id        Int      @id @default(autoincrement())
   postId    Int
-  authorId  String
+  authorId  String?
   parentId  Int?
   post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  author    User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  author    User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
   parent    CommunityComment?  @relation("CommunityCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   CommunityComment[] @relation("CommunityCommentReplies")
   likes     CommunityCommentLike[]

@@ -14,7 +14,7 @@ function parseRedirectUri(state?: string): string | undefined {
   if (!state) return undefined;
   try {
     const { redirectUri } = JSON.parse(Buffer.from(state, 'base64').toString());
-    if (typeof redirectUri === 'string' && (redirectUri.startsWith('ilaw://auth') || redirectUri.startsWith('exp://'))) {
+    if (typeof redirectUri === 'string' && (redirectUri.startsWith('ilaw://auth') || redirectUri.startsWith('exp://') || redirectUri.startsWith('https://'))) {
       return redirectUri;
     }
   } catch {}

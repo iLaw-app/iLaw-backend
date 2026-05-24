@@ -44,5 +44,5 @@ export async function getPopularContent(limit = 5) {
 
   combined.sort((a, b) => b.scrapCount - a.scrapCount);
 
-  return combined.slice(0, limit).map(({ scrapCount: _sc, ...item }) => item);
+  return combined.slice(0, limit);
 }

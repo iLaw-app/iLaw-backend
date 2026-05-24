@@ -39,8 +39,8 @@ export async function updatePost(req: AuthRequest, res: Response) {
   const id = parseInt(String(req.params.id));
   if (isNaN(id)) { res.status(400).json({ message: '잘못된 ID입니다.' }); return; }
 
-  const { title, content, imageUrls } = req.body;
-  const result = await communityService.updatePost(id, req.userId!, { title, content, imageUrls });
+  const { title, content, poll, imageUrls } = req.body;
+  const result = await communityService.updatePost(id, req.userId!, { title, content, poll, imageUrls });
   if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
   if (result.error === 'forbidden') { res.status(403).json({ message: '권한이 없습니다.' }); return; }
   res.json(result.data);

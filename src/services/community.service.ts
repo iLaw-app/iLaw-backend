@@ -138,7 +138,7 @@ export async function createPost(
 export async function updatePost(
   id: number,
   userId: string,
-  data: { title?: string; content?: string; imageUrls?: string[] },
+  data: { title?: string; content?: string; imageUrls?: string[]; poll?: object },
 ) {
   const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true } });
   if (!post) return { error: 'not_found' as const };
@@ -150,8 +150,9 @@ export async function updatePost(
       title: data.title,
       content: data.content,
       ...(data.imageUrls !== undefined && { imageUrls: data.imageUrls }),
+      ...(data.poll !== undefined && { poll: normalizePoll(data.poll) ?? undefined }),
     },
-    select: { id: true, title: true, content: true, imageUrls: true, updatedAt: true },
+    select: { id: true, title: true, content: true, imageUrls: true, poll: true, updatedAt: true },
   });
   return { data: updated };
 }

@@ -31,11 +31,12 @@ export async function getUserScraps(userId: string) {
           question: true,
           summary: true,
           category: { select: { name: true, slug: true } },
+          _count: { select: { scraps: true } },
         },
       },
     },
   });
-  return scraps.map(s => s.article);
+  return scraps.map(({ article: { _count, ...a } }: any) => ({ ...a, scrapCount: _count.scraps }));
 }
 
 export async function toggleQAScrap(userId: string, postId: number): Promise<{ scrapped: boolean }> {
@@ -67,13 +68,15 @@ export async function getUserQAScraps(userId: string) {
         select: {
           id: true,
           title: true,
+          content: true,
           category: true,
           status: true,
           createdAt: true,
           author: { select: { nickname: true } },
+          _count: { select: { scraps: true } },
         },
       },
     },
   });
-  return scraps.map((s: { post: object }) => s.post);
+  return scraps.map(({ post: { _count, ...p } }: any) => ({ ...p, scrapCount: _count.scraps, author: { nickname: '익명' } }));
 }

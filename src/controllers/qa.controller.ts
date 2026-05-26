@@ -15,8 +15,8 @@ export async function searchPosts(req: AuthRequest, res: Response) {
   });
 }
 
-export async function listPosts(_req: AuthRequest, res: Response) {
-  const posts = await listQAPosts();
+export async function listPosts(req: AuthRequest, res: Response) {
+  const posts = await listQAPosts(req.userId);
   res.json(posts.map(p => ({ ...p, author: { nickname: '익명' } })));
 }
 

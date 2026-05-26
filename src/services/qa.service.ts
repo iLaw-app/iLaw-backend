@@ -3,8 +3,8 @@ import prisma from '../prisma/client';
 import { getEmbedding } from './embedding.service';
 import { expandQuery } from './synonyms';
 
-export async function listQAPosts() {
-  return prisma.qnAPost.findMany({
+export async function listQAPosts(userId?: string) {
+  const posts = await prisma.qnAPost.findMany({
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
     select: {
       id: true,
@@ -14,8 +14,16 @@ export async function listQAPosts() {
       status: true,
       createdAt: true,
       author: { select: { nickname: true } },
+      _count: { select: { scraps: true } },
+      ...(userId ? { scraps: { where: { userId }, select: { id: true } } } : {}),
     },
   });
+
+  return posts.map(({ _count, scraps, ...p }: any) => ({
+    ...p,
+    scrapCount: _count.scraps,
+    scrapped: userId ? (scraps?.length ?? 0) > 0 : undefined,
+  }));
 }
 
 function calcKoreanAge(birthDate: Date): number {

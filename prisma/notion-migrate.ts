@@ -73,8 +73,10 @@ async function parseHtmlFile(htmlFile: string) {
   }
 
   // Upload local images to S3 and replace src URLs
+  // HTML 파일명은 "제목 {UUID}.html" 형태, 이미지 폴더는 "제목" (UUID 없음)
   const htmlFileName = path.basename(htmlFile, '.html');
-  const imageFolder = path.join(EXPORT_DIR, htmlFileName);
+  const folderNameWithoutUuid = htmlFileName.replace(/\s+[0-9a-f]{32}$/i, '');
+  const imageFolder = path.join(EXPORT_DIR, folderNameWithoutUuid);
 
   if (fs.existsSync(imageFolder)) {
     const imageFiles = fs.readdirSync(imageFolder).filter(f => /\.(png|jpe?g|webp|gif)$/i.test(f));

@@ -1,7 +1,7 @@
 import prisma from '../prisma/client';
 
 export async function getPopularContent(limit = 5) {
-  const [manualArticles, qnaPosts] = await Promise.all([
+  const [manualArticles, qnaPosts, communityPosts] = await Promise.all([
     prisma.manualArticle.findMany({
       select: {
         id: true,
@@ -23,6 +23,15 @@ export async function getPopularContent(limit = 5) {
       orderBy: { scraps: { _count: 'desc' } },
       take: limit,
     }),
+    prisma.communityPost.findMany({
+      select: {
+        id: true,
+        title: true,
+        _count: { select: { bookmarks: true } },
+      },
+      orderBy: { bookmarks: { _count: 'desc' } },
+      take: limit,
+    }),
   ]);
 
   const combined = [
@@ -39,6 +48,13 @@ export async function getPopularContent(limit = 5) {
       label: p.title,
       category: p.category,
       scrapCount: p._count.scraps,
+    })),
+    ...communityPosts.map(p => ({
+      type: 'community' as const,
+      id: p.id,
+      label: p.title,
+      category: '커뮤니티',
+      scrapCount: p._count.bookmarks,
     })),
   ];
 

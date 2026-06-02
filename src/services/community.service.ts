@@ -94,14 +94,15 @@ export async function getPost(id: number, userId?: string) {
   });
   if (!post) return null;
 
-  const [liked, bookmarked, vote, labels] = userId
+  const [liked, bookmarked, vote] = userId
     ? await Promise.all([
         prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId: id } } }),
         prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId: id } } }),
         prisma.communityPollVote.findUnique({ where: { userId_postId: { userId, postId: id } } }),
-        fetchLabelMap(id),
       ])
-    : [null, null, null, await fetchLabelMap(id)] as const;
+    : [null, null, null];
+
+  const labels = buildLabelMapFromComments(post.comments, post.authorId);
 
   return {
     id: post.id,
@@ -358,16 +359,25 @@ function buildCommentTree(
   }));
 }
 
-async function fetchLabelMap(postId: number): Promise<Map<string, number>> {
-  const rows = await prisma.communityCommentAuthorLabel.findMany({
-    where: { postId },
-    orderBy: [{ createdAt: 'asc' }, { userId: 'asc' }],
-  });
-  return new Map(rows.map((r, i) => [r.userId, i + 1]));
+// 댓글 작성자 등장 순서로 익명 번호를 직접 매긴다 (별도 라벨 테이블에 의존하지 않아 누락 없이 모두 번호가 붙음).
+// 글쓴이(게시글 작성자)는 '익명(글쓴이)'로 표시되므로 번호 대상에서 제외.
+function buildLabelMapFromComments(
+  comments: { author: { id: string } | null; createdAt: Date }[],
+  postAuthorId: string | null,
+): Map<string, number> {
+  const ordered = [...comments].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const map = new Map<string, number>();
+  let n = 0;
+  for (const c of ordered) {
+    if (!c.author) continue;
+    if (postAuthorId && c.author.id === postAuthorId) continue;
+    if (!map.has(c.author.id)) { n++; map.set(c.author.id, n); }
+  }
+  return map;
 }
 
 export async function listComments(postId: number, userId?: string) {
-  const [post, comments, labels] = await Promise.all([
+  const [post, comments] = await Promise.all([
     prisma.communityPost.findUnique({ where: { id: postId }, select: { authorId: true } }),
     prisma.communityComment.findMany({
       where: { postId },
@@ -378,11 +388,11 @@ export async function listComments(postId: number, userId?: string) {
         _count: { select: { likes: true } },
       },
     }),
-    fetchLabelMap(postId),
   ]);
 
   if (!post) return [];
 
+  const labels = buildLabelMapFromComments(comments, post.authorId);
   return buildCommentTree(comments, labels, post.authorId, userId);
 }
 
@@ -402,15 +412,15 @@ export async function createComment(postId: number, userId: string, content: str
     data: { postId, authorId: userId, content, parentId },
   });
 
-  await prisma.communityCommentAuthorLabel.upsert({
-    where: { postId_userId: { postId, userId } },
-    update: {},
-    create: { postId, userId },
+  // 방금 생성한 댓글까지 포함해 작성자 등장 순서로 번호를 다시 계산
+  const allComments = await prisma.communityComment.findMany({
+    where: { postId },
+    orderBy: { createdAt: 'asc' },
+    select: { author: { select: { id: true } }, createdAt: true },
   });
-
-  const labels = await fetchLabelMap(postId);
+  const labels = buildLabelMapFromComments(allComments, post.authorId);
   const isPostAuthor = !!post.authorId && userId === post.authorId;
-  const nickname = isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(userId) ?? '?'}`;
+  const nickname = isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(userId) ?? 1}`;
 
   return {
     data: {

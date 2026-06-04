@@ -210,5 +210,5 @@ ${contentBlocks}`,
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
 
-  return { status: 'relevant', situationSummary, legalAdvice, suggestions, chatEnded: false };
+  return { status: 'relevant', situationSummary, legalAdvice, suggestions, chatEnded: true };
 }

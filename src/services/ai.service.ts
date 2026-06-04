@@ -97,6 +97,9 @@ export async function diagnose(
   const keywords = extractKeywords(message);
   const filteredManuals = preFilterManuals(manuals, keywords);
   const filteredQAs = preFilterQAs(qaPosts, keywords);
+  console.log('[AI] keywords:', keywords);
+  console.log('[AI] filteredManuals:', filteredManuals.map(m => `[${m.id}] ${m.question}`));
+  console.log('[AI] filteredQAs:', filteredQAs.map(q => `[${q.id}] ${q.title}`));
 
   // ── GPT 1차: 상황 요약 + 관련 항목 선택 ──
   const manualList = filteredManuals

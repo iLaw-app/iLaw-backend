@@ -484,7 +484,7 @@ export async function searchCommunityPosts(query: string, debug = false) {
   const sorted = scored.sort((a, b) => b.score - a.score);
   const threshold = sorted.some((p) => p.score >= 10) ? 10
     : sorted.some((p) => p.score >= 6) ? 6
-    : 3;
+    : 1;
 
   const results = sorted
     .filter((p) => p.score >= threshold)

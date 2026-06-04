@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import prisma from '../prisma/client';
+import { expandQuery } from './synonyms';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -31,6 +32,48 @@ async function getQACache(): Promise<QAItem[]> {
   return qaCache;
 }
 
+// ── 키워드 추출 + 사전 필터링 ──────────────────────────────────
+
+function extractKeywords(message: string): string[] {
+  const words = message
+    .split(/[\s.,!?。、·\-_'"()\[\]{}]+/)
+    .map(w => w.trim())
+    .filter(w => w.length >= 2);
+  const terms = new Set<string>();
+  for (const word of words) {
+    expandQuery(word).forEach(t => terms.add(t));
+  }
+  return [...terms];
+}
+
+function preFilterManuals(manuals: ManualItem[], terms: string[], limit = 8): ManualItem[] {
+  if (manuals.length <= limit) return manuals;
+  if (terms.length === 0) return manuals.slice(0, limit);
+  return manuals
+    .map(m => ({
+      m,
+      score: terms.reduce((acc, t) =>
+        acc + (m.question.includes(t) ? 2 : 0) + ((m.summary ?? '').includes(t) ? 1.5 : 0), 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.m);
+}
+
+function preFilterQAs(qas: QAItem[], terms: string[], limit = 8): QAItem[] {
+  if (qas.length <= limit) return qas;
+  if (terms.length === 0) return qas.slice(0, limit);
+  return qas
+    .map(q => ({
+      q,
+      score: terms.reduce((acc, t) =>
+        acc + (q.title.includes(t) ? 2 : 0) + (q.content.slice(0, 300).includes(t) ? 1.5 : 0), 0),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(s => s.q);
+}
+
 // ── 메인 로직 ──────────────────────────────────────────────────
 
 type Reference = { type: 'manual' | 'qa'; id: number };
@@ -51,11 +94,16 @@ export async function diagnose(
   const qaPosts = await getQACache();
   const userLabel = nickname ? `${nickname}님` : '사용자';
 
+  // ── 키워드 기반 사전 필터링 ──
+  const keywords = extractKeywords(message);
+  const filteredManuals = preFilterManuals(manuals, keywords);
+  const filteredQAs = preFilterQAs(qaPosts, keywords);
+
   // ── GPT 1차: 상황 요약 + 관련 항목 선택 ──
-  const manualList = manuals
+  const manualList = filteredManuals
     .map(m => `[MANUAL id=${m.id}] ${m.question}${m.summary ? ' / ' + m.summary : ''}`)
     .join('\n');
-  const qaList = qaPosts
+  const qaList = filteredQAs
     .map(q => `[QA id=${q.id}] ${q.title} / ${q.content.slice(0, 200)}`)
     .join('\n');
 
@@ -79,7 +127,9 @@ export async function diagnose(
    - "unrelated": 인사말·잡담·일반 법률 지식 질문·법률과 무관한 내용
 
 2. status가 "relevant"일 때만: ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
-3. status가 "relevant"일 때만: 목록 중 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요.
+3. status가 "relevant"일 때만: 목록 중 사용자의 상황과 직접적으로 관련된 항목만 최대 3개 골라 ID를 반환하세요.
+   - 사용자가 피해자라면 반드시 피해자 입장의 항목을 선택하세요. 가해자·처벌 관련 항목은 제외하세요.
+   - 확실하게 관련 있는 항목이 없으면 빈 배열([])을 반환하세요. 억지로 채우지 마세요.
 
 반드시 다음 JSON 형식으로만 응답하세요:
 {"status":"relevant","situationSummary":"...","references":[{"type":"manual"|"qa","id":숫자}]}

@@ -5,7 +5,7 @@ import { diagnose } from '../services/ai.service';
 
 export async function chat(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const { message, hasAskedForMore } = req.body;
+    const { message } = req.body;
     if (!message || typeof message !== 'string' || !message.trim()) {
       res.status(400).json({ error: 'message is required' });
       return;
@@ -28,7 +28,7 @@ export async function chat(req: AuthRequest, res: Response, next: NextFunction) 
       recentHistory = history.reverse();
     }
 
-    const result = await diagnose(message.trim(), nickname, recentHistory, !!hasAskedForMore);
+    const result = await diagnose(message.trim(), nickname, recentHistory);
 
     if (req.userId && result.chatEnded && result.status === 'relevant') {
       prisma.aiChatHistory.create({

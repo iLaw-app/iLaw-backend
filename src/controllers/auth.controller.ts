@@ -45,15 +45,15 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     agreedMarketing?: boolean;
   };
 
-  if (!nickname || !region || !birthDate || !gender) {
-    res.status(400).json({ message: 'nickname, region, birthDate, gender are required' });
+  if (!nickname) {
+    res.status(400).json({ message: 'nickname is required' });
     return;
   }
   if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
     res.status(400).json({ message: '아이디는 영어, 숫자, _만 사용 가능합니다.' });
     return;
   }
-  if (!['male', 'female', 'other'].includes(gender)) {
+  if (gender && !['male', 'female', 'other'].includes(gender)) {
     res.status(400).json({ message: 'gender must be male, female, or other' });
     return;
   }
@@ -62,8 +62,8 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     return;
   }
 
-  const parsedBirthDate = new Date(birthDate);
-  if (isNaN(parsedBirthDate.getTime())) {
+  const parsedBirthDate = birthDate ? new Date(birthDate) : null;
+  if (parsedBirthDate && isNaN(parsedBirthDate.getTime())) {
     res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
     return;
   }
@@ -73,9 +73,9 @@ export async function completeProfile(req: AuthRequest, res: Response) {
       where: { id: req.userId },
       data: {
         nickname,
-        region,
+        region: region ?? null,
         birthDate: parsedBirthDate,
-        gender,
+        gender: gender ?? null,
         agreedTermsOfService,
         agreedPrivacyPolicy,
         agreedAge14,

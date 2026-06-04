@@ -30,7 +30,7 @@ export async function chat(req: AuthRequest, res: Response, next: NextFunction) 
 
     const result = await diagnose(message.trim(), nickname, recentHistory, !!hasAskedForMore);
 
-    if (req.userId) {
+    if (req.userId && result.chatEnded && result.status === 'relevant') {
       prisma.aiChatHistory.create({
         data: {
           userId: req.userId,

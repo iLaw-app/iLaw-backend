@@ -35,10 +35,17 @@ async function getQACache(): Promise<QAItem[]> {
 
 type Reference = { type: 'manual' | 'qa'; id: number };
 
-export async function diagnose(message: string, nickname?: string): Promise<{
+export async function diagnose(
+  message: string,
+  nickname?: string,
+  history: { question: string; legalAdvice: string }[] = [],
+  hasAskedForMore = false,
+): Promise<{
+  status: 'relevant' | 'insufficient' | 'unrelated';
   situationSummary: string;
   legalAdvice: string;
   suggestions: { type: 'manual' | 'qa'; id: number; label: string }[];
+  chatEnded: boolean;
 }> {
   const manuals = manualCache;
   const qaPosts = await getQACache();
@@ -52,6 +59,11 @@ export async function diagnose(message: string, nickname?: string): Promise<{
     .map(q => `[QA id=${q.id}] ${q.title} / ${q.content.slice(0, 200)}`)
     .join('\n');
 
+  const historyMessages = history.flatMap(h => [
+    { role: 'user' as const, content: h.question },
+    { role: 'assistant' as const, content: h.legalAdvice },
+  ]);
+
   const step1Res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     response_format: { type: 'json_object' },
@@ -59,14 +71,19 @@ export async function diagnose(message: string, nickname?: string): Promise<{
       {
         role: 'system',
         content: `당신은 법률 정보 서비스의 AI 어시스턴트입니다.
-아래 매뉴얼과 Q&A 목록을 읽고 세 가지를 수행하세요.
-1. 사용자 메시지가 본인이 겪고 있는 법률 관련 상황 설명인지 판단하세요. 인사말·잡담·일반 법률 지식 질문·무관한 내용이면 false, 본인 상황이면 true입니다.
-2. isRelevant가 true일 때만: ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
-3. isRelevant가 true일 때만: 목록 중 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요.
+아래 매뉴얼과 Q&A 목록을 읽고 다음을 수행하세요.
+
+1. 사용자 메시지를 아래 세 가지로 분류하세요.
+   - "relevant": 본인이 겪고 있는 법률 관련 상황이며 판단에 충분한 정보가 있음
+   - "insufficient": 법률 관련 상황인 것 같지만 정보가 너무 부족하여 판단 불가 (예: "억울한 일이 있어요", "도움이 필요해요" 등 상황 설명이 없는 경우)
+   - "unrelated": 인사말·잡담·일반 법률 지식 질문·법률과 무관한 내용
+
+2. status가 "relevant"일 때만: ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
+3. status가 "relevant"일 때만: 목록 중 실제로 관련 있는 항목을 최대 3개 골라 ID를 반환하세요.
 
 반드시 다음 JSON 형식으로만 응답하세요:
-{"isRelevant":true,"situationSummary":"...","references":[{"type":"manual"|"qa","id":숫자}]}
-isRelevant가 false이면: {"isRelevant":false,"situationSummary":"","references":[]}
+{"status":"relevant","situationSummary":"...","references":[{"type":"manual"|"qa","id":숫자}]}
+status가 relevant가 아니면: {"status":"insufficient"|"unrelated","situationSummary":"","references":[]}
 
 === 매뉴얼 목록 ===
 ${manualList}
@@ -74,6 +91,7 @@ ${manualList}
 === Q&A 목록 ===
 ${qaList}`,
       },
+      ...historyMessages,
       { role: 'user', content: message },
     ],
   });
@@ -83,12 +101,34 @@ ${qaList}`,
 
   try {
     const parsed = JSON.parse(step1Res.choices[0].message.content ?? '{}');
+    const status: string = parsed.status ?? 'unrelated';
 
-    if (parsed.isRelevant === false) {
+    if (status === 'unrelated') {
       return {
+        status: 'unrelated',
         situationSummary: '',
-        legalAdvice: `${userLabel}의 상황을 좀 더 자세히 말씀해 주시면 도움을 드릴 수 있어요!\n\n예를 들어 이렇게 알려주세요:\n• 어떤 일이 있었는지\n• 상대방이 누구인지 (사장님, 집주인, 친구 등)\n• 어떻게 해결하고 싶은지`,
+        legalAdvice: '저는 법률 관련 상황만 도와드릴 수 있어요. 법률적으로 어려운 상황이 생기면 언제든지 말씀해 주세요.',
         suggestions: [],
+        chatEnded: true,
+      };
+    }
+
+    if (status === 'insufficient') {
+      if (hasAskedForMore) {
+        return {
+          status: 'insufficient',
+          situationSummary: '',
+          legalAdvice: '주어진 내용만으로는 도움드리기 어렵습니다. 더 구체적인 상황을 알게 되시면 다시 말씀해 주세요.',
+          suggestions: [],
+          chatEnded: true,
+        };
+      }
+      return {
+        status: 'insufficient',
+        situationSummary: '',
+        legalAdvice: `${userLabel}의 상황을 좀 더 자세히 말씀해 주시면 더 잘 도와드릴 수 있어요!\n\n예를 들어 이렇게 알려주세요:\n• 어떤 일이 있었는지\n• 상대방이 누구인지 (사장님, 집주인, 친구 등)\n• 어떻게 해결하고 싶은지`,
+        suggestions: [],
+        chatEnded: false,
       };
     }
 
@@ -152,6 +192,7 @@ ${qaList}`,
 === 법률 콘텐츠 ===
 ${contentBlocks}`,
         },
+        ...historyMessages,
         { role: 'user', content: message },
       ],
     });
@@ -169,5 +210,5 @@ ${contentBlocks}`,
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
 
-  return { situationSummary, legalAdvice, suggestions };
+  return { status: 'relevant', situationSummary, legalAdvice, suggestions, chatEnded: false };
 }

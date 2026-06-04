@@ -286,6 +286,7 @@ export async function votePoll(postId: number, userId: string, optionIndex: numb
 
 type CommunityCommentRow = {
   id: number;
+  authorId: string | null;
   parentId: number | null;
   createdAt: Date;
   content: string;
@@ -314,7 +315,8 @@ function buildCommentTree(
   userId?: string,
 ) {
   const mapped: CommunityCommentResponse[] = comments.map((c) => {
-    if (!c.author) {
+    const authorId = c.author?.id ?? c.authorId ?? null;
+    if (!authorId) {
       return {
         id: c.id,
         nickname: ANONYMOUS_POST_AUTHOR,
@@ -328,16 +330,16 @@ function buildCommentTree(
         replies: [],
       };
     }
-    const isPostAuthor = !!postAuthorId && c.author.id === postAuthorId;
+    const isPostAuthor = !!postAuthorId && authorId === postAuthorId;
     return {
       id: c.id,
-      nickname: isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(c.author.id) ?? '?'}`,
+      nickname: isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(authorId) ?? '?'}`,
       createdAt: c.createdAt,
       content: c.content,
       likes: c._count.likes,
       liked: !!c.likes?.length,
       parentId: c.parentId,
-      isAuthor: userId ? c.author.id === userId : false,
+      isAuthor: userId ? authorId === userId : false,
       isPostAuthor,
       replies: [],
     };
@@ -362,16 +364,17 @@ function buildCommentTree(
 // 댓글 작성자 등장 순서로 익명 번호를 직접 매긴다 (별도 라벨 테이블에 의존하지 않아 누락 없이 모두 번호가 붙음).
 // 글쓴이(게시글 작성자)는 '익명(글쓴이)'로 표시되므로 번호 대상에서 제외.
 function buildLabelMapFromComments(
-  comments: { author: { id: string } | null; createdAt: Date }[],
+  comments: { authorId?: string | null; author: { id: string } | null; createdAt: Date }[],
   postAuthorId: string | null,
 ): Map<string, number> {
   const ordered = [...comments].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const map = new Map<string, number>();
   let n = 0;
   for (const c of ordered) {
-    if (!c.author) continue;
-    if (postAuthorId && c.author.id === postAuthorId) continue;
-    if (!map.has(c.author.id)) { n++; map.set(c.author.id, n); }
+    const id = c.author?.id ?? c.authorId;
+    if (!id) continue;
+    if (postAuthorId && id === postAuthorId) continue;
+    if (!map.has(id)) { n++; map.set(id, n); }
   }
   return map;
 }

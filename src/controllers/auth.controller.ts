@@ -45,16 +45,15 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     agreedMarketing?: boolean;
   };
 
-  // 아이디만 필수. 지역/생년월일/성별은 선택(선택안함 허용).
-  if (!nickname) {
-    res.status(400).json({ message: 'nickname is required' });
+  if (!nickname || !region || !birthDate || !gender) {
+    res.status(400).json({ message: 'nickname, region, birthDate, gender are required' });
     return;
   }
   if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
     res.status(400).json({ message: '아이디는 영어, 숫자, _만 사용 가능합니다.' });
     return;
   }
-  if (gender && !['male', 'female', 'other'].includes(gender)) {
+  if (!['male', 'female', 'other'].includes(gender)) {
     res.status(400).json({ message: 'gender must be male, female, or other' });
     return;
   }
@@ -63,13 +62,10 @@ export async function completeProfile(req: AuthRequest, res: Response) {
     return;
   }
 
-  let parsedBirthDate: Date | null = null;
-  if (birthDate) {
-    parsedBirthDate = new Date(birthDate);
-    if (isNaN(parsedBirthDate.getTime())) {
-      res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
-      return;
-    }
+  const parsedBirthDate = new Date(birthDate);
+  if (isNaN(parsedBirthDate.getTime())) {
+    res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
+    return;
   }
 
   try {
@@ -77,9 +73,9 @@ export async function completeProfile(req: AuthRequest, res: Response) {
       where: { id: req.userId },
       data: {
         nickname,
-        region: region || null,
+        region,
         birthDate: parsedBirthDate,
-        gender: gender || null,
+        gender,
         agreedTermsOfService,
         agreedPrivacyPolicy,
         agreedAge14,
@@ -183,33 +179,29 @@ export async function updateProfile(req: AuthRequest, res: Response) {
     affiliation?: string;
   };
 
-  // 아이디만 필수. 지역/생년월일/성별은 선택(선택안함 허용).
-  if (!nickname) {
-    res.status(400).json({ message: 'nickname is required' });
+  if (!nickname || !region || !birthDate || !gender) {
+    res.status(400).json({ message: 'nickname, region, birthDate, gender are required' });
     return;
   }
   if (!/^[a-zA-Z0-9_]+$/.test(nickname)) {
     res.status(400).json({ message: '아이디는 영어, 숫자, _만 사용 가능합니다.' });
     return;
   }
-  if (gender && !['male', 'female', 'other'].includes(gender)) {
+  if (!['male', 'female', 'other'].includes(gender)) {
     res.status(400).json({ message: 'gender must be male, female, or other' });
     return;
   }
 
-  let parsedBirthDate: Date | null = null;
-  if (birthDate) {
-    parsedBirthDate = new Date(birthDate);
-    if (isNaN(parsedBirthDate.getTime())) {
-      res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
-      return;
-    }
+  const parsedBirthDate = new Date(birthDate);
+  if (isNaN(parsedBirthDate.getTime())) {
+    res.status(400).json({ message: 'birthDate 형식이 올바르지 않습니다. (예: 1995-08-15)' });
+    return;
   }
 
   try {
     const updated = await prisma.user.update({
       where: { id: req.userId },
-      data: { nickname, region: region || null, birthDate: parsedBirthDate, gender: gender || null, affiliation: affiliation ?? null },
+      data: { nickname, region, birthDate: parsedBirthDate, gender, affiliation: affiliation ?? null },
       select: { id: true, nickname: true, region: true, birthDate: true, gender: true, affiliation: true },
     });
     res.json(updated);

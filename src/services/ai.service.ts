@@ -46,8 +46,6 @@ export async function loadManualCache() {
 
 // ── 메인 로직 ──────────────────────────────────────────────────
 
-type Reference = { type: 'manual'; id: number };
-
 export async function diagnose(
   message: string,
   nickname?: string,
@@ -61,13 +59,13 @@ export async function diagnose(
 }> {
   const userLabel = nickname ? `${nickname}님` : '사용자';
 
-  // ── 카테고리별로 그룹화된 매뉴얼 목록 구성 ──
+  // ── STEP 1용: 카테고리별 제목+summary 목록 구성 ──
   const manualList = Object.entries(manualsByCategory)
-    .map(([, { name, items }]) => {
+    .map(([slug, { name, items }]) => {
       const lines = items
         .map(m => `[MANUAL id=${m.id}] ${m.question}${m.summary ? ' / ' + m.summary : ''}`)
         .join('\n');
-      return `=== ${name} ===\n${lines}`;
+      return `=== ${name} (${slug}) ===\n${lines}`;
     })
     .join('\n\n');
 
@@ -76,7 +74,7 @@ export async function diagnose(
     { role: 'assistant' as const, content: h.legalAdvice },
   ]);
 
-  // ── GPT 1차: 분류 + 관련 매뉴얼 선택 ──
+  // ── GPT 1차: 분류 + 카테고리 선택 + 카테고리 내 매뉴얼 최대 3개 선택 ──
   const step1Res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     response_format: { type: 'json_object' },
@@ -90,14 +88,16 @@ export async function diagnose(
    - "relevant": 본인이 겪고 있는 법률 관련 상황 설명
    - "unrelated": 인사말·잡담·일반 법률 지식 질문·법률과 무관한 내용·상황 설명이 없는 경우
 
-2. status가 "relevant"일 때만: ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
-3. status가 "relevant"일 때만: 사용자 상황과 직접적으로 관련된 매뉴얼을 최대 3개 골라 ID를 반환하세요.
-   - 사용자가 피해자라면 반드시 피해자 입장의 항목을 선택하세요. 가해자·처벌 관련 항목은 제외하세요.
-   - 확실하게 관련 있는 항목이 없으면 빈 배열([])을 반환하세요. 억지로 채우지 마세요.
+2. status가 "relevant"일 때만:
+   a. ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
+   b. 사용자 상황에 가장 적합한 카테고리 slug를 하나 선택하세요.
+   c. 선택한 카테고리 내에서 사용자 상황과 가장 직접적으로 관련된 매뉴얼을 최대 3개 골라 ID를 반환하세요.
+      - 사용자가 피해자라면 반드시 피해자 입장의 항목을 선택하세요. 가해자·처벌 관련 항목은 제외하세요.
+      - 확실하게 관련 있는 항목이 없으면 빈 배열([])을 반환하세요. 억지로 채우지 마세요.
 
 반드시 다음 JSON 형식으로만 응답하세요:
-{"status":"relevant","situationSummary":"...","references":[{"type":"manual","id":숫자}]}
-status가 relevant가 아니면: {"status":"unrelated","situationSummary":"","references":[]}
+{"status":"relevant","categorySlug":"슬러그","situationSummary":"...","references":[{"type":"manual","id":숫자}]}
+status가 relevant가 아니면: {"status":"unrelated","categorySlug":"","situationSummary":"","references":[]}
 
 === 매뉴얼 목록 ===
 ${manualList}`,
@@ -108,13 +108,13 @@ ${manualList}`,
   });
 
   let situationSummary = '';
-  let references: Reference[] = [];
+  let categorySlug = '';
+  let selectedIds: number[] = [];
 
   try {
     const parsed = JSON.parse(step1Res.choices[0].message.content ?? '{}');
-    const status: string = parsed.status ?? 'unrelated';
 
-    if (status !== 'relevant') {
+    if (parsed.status !== 'relevant') {
       return {
         status: 'unrelated',
         situationSummary: '',
@@ -125,25 +125,25 @@ ${manualList}`,
     }
 
     situationSummary = parsed.situationSummary ?? '';
-    references = (parsed.references ?? []).filter(
-      (r: any) => r.type === 'manual' && typeof r.id === 'number'
-    );
+    categorySlug = parsed.categorySlug ?? '';
+    selectedIds = (parsed.references ?? [])
+      .filter((r: any) => r.type === 'manual' && typeof r.id === 'number')
+      .map((r: any) => r.id as number);
 
-    console.log('[AI] selected manuals:', references.map(r => r.id));
+    console.log('[AI] category:', categorySlug, '/ selected manuals:', selectedIds);
   } catch {
-    // 파싱 실패 시 references 없이 진행
+    // 파싱 실패 시 빈 선택으로 진행
   }
 
   // ── 선택된 매뉴얼 전체 내용 DB 조회 ──
-  const manualIds = references.map(r => r.id);
-  const fullArticles = manualIds.length > 0
+  const fullArticles = selectedIds.length > 0
     ? await prisma.manualArticle.findMany({
-        where: { id: { in: manualIds } },
+        where: { id: { in: selectedIds } },
         select: { id: true, question: true, content: true },
       })
     : [];
 
-  // ── GPT 2차: 매뉴얼 내용 기반 최종 법적 안내 생성 ──
+  // ── GPT 2차: 선택된 매뉴얼 전체 내용 기반 법적 안내 생성 ──
   const contentBlocks = fullArticles
     .map(a => `[매뉴얼] ${a.question}\n${a.content}`)
     .join('\n\n---\n\n');
@@ -177,11 +177,12 @@ ${contentBlocks}`,
     legalAdvice = step2Res.choices[0].message.content?.trim() ?? '';
   }
 
-  // ── 응답 조합 ──
-  const suggestions = references
-    .map(ref => {
-      const label = manualCache.find(m => m.id === ref.id)?.question;
-      return label ? { type: 'manual' as const, id: ref.id, label } : null;
+  // ── suggestions: 선택된 매뉴얼 반환 ──
+  const categoryItems = manualsByCategory[categorySlug]?.items ?? [];
+  const suggestions = selectedIds
+    .map(id => {
+      const label = categoryItems.find(m => m.id === id)?.question;
+      return label ? { type: 'manual' as const, id, label } : null;
     })
     .filter((s): s is NonNullable<typeof s> => s !== null);
 

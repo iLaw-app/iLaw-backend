@@ -16,6 +16,7 @@ const CATEGORY_CONFIG: Record<string, { slug: string; order: number; agencyCsv?:
   '온라인폭력': { slug: 'online-violence', order: 5, agencyCsv: '온라인폭력.csv' },
   '출생과 양육': { slug: 'birth-and-parenting', order: 6, agencyCsv: '출생과양육.csv' },
   '친권 미성년후견': { slug: 'parental-rights', order: 7, agencyCsv: '친권미성년후견.csv' },
+  '학교폭력': { slug: 'school-violence', order: 8, agencyCsv: '학교폭력.csv' },
 };
 
 function parseMarkdown(filePath: string): { question: string; summary: string | null; content: string } {

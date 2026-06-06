@@ -7,4 +7,4 @@ CLAUDE.md
 .omc/
 .DS_Store
 .vscode/
-prisma/data/
+prisma/data/manual/

@@ -53,23 +53,3 @@ export async function googleSdkLogin(req: Request, res: Response) {
     res.status(401).json({ message: 'Invalid Google id token' });
   }
 }
-
-export async function naverSdkLogin(req: Request, res: Response) {
-  const { accessToken } = req.body as { accessToken?: string };
-  if (!accessToken) {
-    res.status(400).json({ message: 'accessToken is required' });
-    return;
-  }
-
-  try {
-    const { data } = await axios.get('https://openapi.naver.com/v1/nid/me', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    const profile = data.response;
-    const user = await upsertUser('naver', profile.id, profile.email);
-    await issueTokens(user.id, user.profileCompleted, res);
-  } catch {
-    res.status(401).json({ message: 'Invalid Naver access token' });
-  }
-}

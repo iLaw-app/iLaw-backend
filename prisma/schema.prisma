@@ -43,8 +43,32 @@ model User {
   communityCommentLikes CommunityCommentLike[]
   communityCommentAuthorLabels CommunityCommentAuthorLabel[]
   aiChatHistories              AiChatHistory[]
+  oauthLoginCodes              OAuthLoginCode[]
 
   @@unique([provider, providerId])
+}
+
+model OAuthTransaction {
+  nonceHash String   @id
+  provider  String
+  target    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model OAuthLoginCode {
+  id        String    @id @default(cuid())
+  codeHash  String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model ManualCategory {

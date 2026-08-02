@@ -72,8 +72,7 @@
             "type": "string",
             "enum": [
               "kakao",
-              "google",
-              "naver"
+              "google"
             ],
             "example": "kakao"
           },
@@ -189,13 +188,31 @@
     "/auth/kakao": {
       "get": {
         "summary": "카카오 로그인",
-        "description": "카카오 OAuth 로그인 페이지로 리다이렉트합니다.",
+        "description": "서명된 state와 브라우저 트랜잭션 쿠키를 발급하고 카카오 로그인 페이지로 리다이렉트합니다.",
         "tags": [
           "Auth"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "local"
+              ]
+            },
+            "description": "고정 리다이렉트 대상. local은 비운영 환경에서만 허용됩니다."
+          }
         ],
         "responses": {
           "302": {
             "description": "카카오 로그인 페이지로 리다이렉트"
+          },
+          "400": {
+            "description": "허용되지 않은 target 또는 redirectUri 입력"
           }
         }
       }
@@ -203,20 +220,16 @@
     "/auth/kakao/callback": {
       "get": {
         "summary": "카카오 로그인 콜백",
-        "description": "카카오 로그인 완료 후 JWT 토큰을 반환합니다.",
+        "description": "state와 브라우저 트랜잭션을 검증한 뒤 고정된 프론트엔드 주소로 일회용 code를 전달합니다. JWT는 URL에 포함하지 않습니다.",
         "tags": [
           "Auth"
         ],
         "responses": {
-          "200": {
-            "description": "로그인 성공",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
-                }
-              }
-            }
+          "303": {
+            "description": "로그인 성공 후 ?code=...가 포함된 고정 프론트엔드 주소로 리다이렉트"
+          },
+          "400": {
+            "description": "유효하지 않거나 만료되었거나 이미 사용된 state"
           }
         }
       }
@@ -224,13 +237,31 @@
     "/auth/google": {
       "get": {
         "summary": "구글 로그인",
-        "description": "구글 OAuth 로그인 페이지로 리다이렉트합니다.",
+        "description": "서명된 state와 브라우저 트랜잭션 쿠키를 발급하고 구글 로그인 페이지로 리다이렉트합니다.",
         "tags": [
           "Auth"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "web",
+                "local"
+              ]
+            },
+            "description": "고정 리다이렉트 대상. local은 비운영 환경에서만 허용됩니다."
+          }
         ],
         "responses": {
           "302": {
             "description": "구글 로그인 페이지로 리다이렉트"
+          },
+          "400": {
+            "description": "허용되지 않은 target 또는 redirectUri 입력"
           }
         }
       }
@@ -238,13 +269,48 @@
     "/auth/google/callback": {
       "get": {
         "summary": "구글 로그인 콜백",
-        "description": "구글 로그인 완료 후 JWT 토큰을 반환합니다.",
+        "description": "state와 브라우저 트랜잭션을 검증한 뒤 고정된 프론트엔드 주소로 일회용 code를 전달합니다. JWT는 URL에 포함하지 않습니다.",
         "tags": [
           "Auth"
         ],
         "responses": {
+          "303": {
+            "description": "로그인 성공 후 ?code=...가 포함된 고정 프론트엔드 주소로 리다이렉트"
+          },
+          "400": {
+            "description": "유효하지 않거나 만료되었거나 이미 사용된 state"
+          }
+        }
+      }
+    },
+    "/auth/exchange": {
+      "post": {
+        "summary": "OAuth 일회용 코드 교환",
+        "description": "OAuth 콜백으로 받은 일회용 code를 iLaw JWT로 교환합니다. code는 1분간 유효하며 한 번만 사용할 수 있습니다.",
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
           "200": {
-            "description": "로그인 성공",
+            "description": "교환 성공",
             "content": {
               "application/json": {
                 "schema": {
@@ -252,41 +318,12 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/auth/naver": {
-      "get": {
-        "summary": "네이버 로그인",
-        "description": "네이버 OAuth 로그인 페이지로 리다이렉트합니다.",
-        "tags": [
-          "Auth"
-        ],
-        "responses": {
-          "302": {
-            "description": "네이버 로그인 페이지로 리다이렉트"
-          }
-        }
-      }
-    },
-    "/auth/naver/callback": {
-      "get": {
-        "summary": "네이버 로그인 콜백",
-        "description": "네이버 로그인 완료 후 JWT 토큰을 반환합니다.",
-        "tags": [
-          "Auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "로그인 성공",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
-                }
-              }
-            }
+          },
+          "400": {
+            "description": "code 누락"
+          },
+          "401": {
+            "description": "유효하지 않거나 만료되었거나 이미 사용된 code"
           }
         }
       }
@@ -521,49 +558,6 @@
                 ],
                 "properties": {
                   "idToken": {
-                    "type": "string",
-                    "example": "eyJhbGci..."
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "로그인 성공",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TokenResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "유효하지 않은 토큰"
-          }
-        }
-      }
-    },
-    "/auth/naver/token": {
-      "post": {
-        "summary": "네이버 SDK 로그인",
-        "description": "네이버 SDK로 받은 accessToken으로 JWT를 발급합니다.",
-        "tags": [
-          "Auth"
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "accessToken"
-                ],
-                "properties": {
-                  "accessToken": {
                     "type": "string",
                     "example": "eyJhbGci..."
                   }

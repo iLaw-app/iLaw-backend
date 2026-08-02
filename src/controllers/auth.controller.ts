@@ -1,26 +1,46 @@
-import { Request, Response } from 'express';
+import { NextFunction, Request, Response } from 'express';
+import { rotateRefreshToken } from '../services/auth.service';
 import {
-  generateAccessToken,
-  generateRefreshToken,
-  saveRefreshToken,
-  rotateRefreshToken,
-} from '../services/auth.service';
+  buildOAuthRedirectUri,
+  createOAuthLoginCode,
+  exchangeOAuthLoginCode,
+} from '../services/oauth.service';
 import prisma from '../prisma/client';
 import { AuthRequest } from '../middlewares/authenticate';
 
-export async function handleSocialCallback(req: Request, res: Response) {
+export async function handleSocialCallback(req: Request, res: Response, next: NextFunction) {
   try {
     const user = req.user as { id: string; profileCompleted: boolean };
-    const appRedirectUri = (req as Request & { appRedirectUri?: string }).appRedirectUri ?? 'ilaw://auth';
+    const redirectUri = (req as Request & { oauthRedirectUri?: string }).oauthRedirectUri;
+    if (!redirectUri) {
+      res.status(400).json({ message: 'Invalid OAuth transaction' });
+      return;
+    }
 
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
-    await saveRefreshToken(user.id, refreshToken);
+    const code = await createOAuthLoginCode(user.id);
+    res.redirect(303, buildOAuthRedirectUri(redirectUri, { code }));
+  } catch (error) {
+    next(error);
+  }
+}
 
-    const deepLink = `${appRedirectUri}?accessToken=${accessToken}&refreshToken=${refreshToken}&profileCompleted=${user.profileCompleted}`;
-    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><script>window.location.href='${deepLink}';</script></body></html>`);
-  } catch {
-    res.status(500).json({ message: 'Login failed. Please try again.' });
+export async function exchangeOAuthCode(req: Request, res: Response, next: NextFunction) {
+  const { code } = req.body as { code?: unknown };
+  if (typeof code !== 'string' || !code || code.length > 512) {
+    res.status(400).json({ message: 'code is required' });
+    return;
+  }
+
+  try {
+    const tokens = await exchangeOAuthLoginCode(code);
+    if (!tokens) {
+      res.status(401).json({ message: 'Invalid or expired OAuth code' });
+      return;
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json(tokens);
+  } catch (error) {
+    next(error);
   }
 }
 

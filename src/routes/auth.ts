@@ -1,24 +1,80 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
 import passport from 'passport';
 import { Strategy as KakaoStrategy } from 'passport-kakao';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Strategy as NaverStrategy } from 'passport-naver-v2';
 import { upsertUser } from '../services/auth.service';
-import { handleSocialCallback, refresh, logout, getMe, completeProfile, deleteAccount, updateProfile } from '../controllers/auth.controller';
-import { kakaoSdkLogin, googleSdkLogin, naverSdkLogin } from '../controllers/social.controller';
+import { exchangeOAuthCode, handleSocialCallback, refresh, logout, getMe, completeProfile, deleteAccount, updateProfile } from '../controllers/auth.controller';
+import { kakaoSdkLogin, googleSdkLogin } from '../controllers/social.controller';
 import { authenticate } from '../middlewares/authenticate';
+import {
+  buildOAuthRedirectUri,
+  consumeOAuthTransaction,
+  createOAuthTransaction,
+  getOAuthRedirectUri,
+  oauthClearCookieOptions,
+  oauthCookieOptions,
+  OAUTH_TRANSACTION_COOKIE,
+  OAuthProvider,
+  parseOAuthTarget,
+  verifyOAuthTransaction,
+} from '../services/oauth.service';
 
 const router = Router();
 
-function parseRedirectUri(state?: string): string | undefined {
-  if (!state) return undefined;
-  try {
-    const { redirectUri } = JSON.parse(Buffer.from(state, 'base64').toString());
-    if (typeof redirectUri === 'string' && (redirectUri.startsWith('ilaw://auth') || redirectUri.startsWith('exp://') || redirectUri.startsWith('https://'))) {
-      return redirectUri;
+function oauthStart(provider: OAuthProvider, scope?: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (req.query.redirectUri !== undefined) {
+      res.status(400).json({ message: 'redirectUri is not supported; use target' });
+      return;
     }
-  } catch {}
-  return undefined;
+
+    const target = parseOAuthTarget(req.query.target);
+    if (!target) {
+      res.status(400).json({ message: 'target must be web or local' });
+      return;
+    }
+
+    try {
+      getOAuthRedirectUri(target);
+      const { state, nonce } = await createOAuthTransaction(provider, target);
+      res.cookie(OAUTH_TRANSACTION_COOKIE, nonce, oauthCookieOptions);
+      passport.authenticate(provider, { ...(scope ? { scope } : {}), state })(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+function oauthCallback(provider: OAuthProvider) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const transaction = verifyOAuthTransaction(req.query.state, req.headers.cookie, provider);
+    if (!transaction) {
+      res.status(400).json({ message: 'Invalid or expired OAuth state' });
+      return;
+    }
+
+    passport.authenticate(provider, { session: false }, (error: unknown, user: Express.User | false) => {
+      void (async () => {
+        if (error || !user) {
+          res.clearCookie(OAUTH_TRANSACTION_COOKIE, oauthClearCookieOptions);
+          res.redirect(303, buildOAuthRedirectUri(transaction.redirectUri, { error: 'login_failed' }));
+          return;
+        }
+
+        const consumed = await consumeOAuthTransaction(transaction);
+        if (!consumed) {
+          res.clearCookie(OAUTH_TRANSACTION_COOKIE, oauthClearCookieOptions);
+          res.status(400).json({ message: 'Invalid or expired OAuth state' });
+          return;
+        }
+
+        res.clearCookie(OAUTH_TRANSACTION_COOKIE, oauthClearCookieOptions);
+        req.user = user;
+        (req as Request & { oauthRedirectUri?: string }).oauthRedirectUri = transaction.redirectUri;
+        next();
+      })().catch(next);
+    })(req, res, next);
+  };
 }
 
 if (process.env.KAKAO_CLIENT_ID) {
@@ -62,157 +118,112 @@ if (process.env.GOOGLE_CLIENT_ID) {
   );
 }
 
-if (process.env.NAVER_CLIENT_ID) {
-  passport.use(
-    new NaverStrategy(
-      {
-        clientID: process.env.NAVER_CLIENT_ID,
-        clientSecret: process.env.NAVER_CLIENT_SECRET!,
-        callbackURL: process.env.NAVER_CALLBACK_URL!,
-      },
-      async (_accessToken: string, _refreshToken: string, profile: { id: string; displayName: string; email?: string }, done: (err: unknown, user?: Express.User | false) => void) => {
-        try {
-          const user = await upsertUser('naver', profile.id, profile.email);
-          done(null, user);
-        } catch (err) {
-          done(err);
-        }
-      }
-    )
-  );
-}
-
 /**
  * @swagger
  * /auth/kakao:
  *   get:
  *     summary: 카카오 로그인
- *     description: 카카오 OAuth 로그인 페이지로 리다이렉트합니다.
+ *     description: 서명된 state와 브라우저 트랜잭션 쿠키를 발급하고 카카오 로그인 페이지로 리다이렉트합니다.
  *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: target
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [web, local]
+ *         description: 고정 리다이렉트 대상. local은 비운영 환경에서만 허용됩니다.
  *     responses:
  *       302:
  *         description: 카카오 로그인 페이지로 리다이렉트
+ *       400:
+ *         description: 허용되지 않은 target 또는 redirectUri 입력
  */
-router.get('/kakao', (req, res, next) => {
-  const redirectUri = req.query.redirectUri as string | undefined;
-  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
-  passport.authenticate('kakao', { state } as object)(req, res, next);
-});
+router.get('/kakao', oauthStart('kakao'));
 
 /**
  * @swagger
  * /auth/kakao/callback:
  *   get:
  *     summary: 카카오 로그인 콜백
- *     description: 카카오 로그인 완료 후 JWT 토큰을 반환합니다.
+ *     description: state와 브라우저 트랜잭션을 검증한 뒤 고정된 프론트엔드 주소로 일회용 code를 전달합니다. JWT는 URL에 포함하지 않습니다.
  *     tags: [Auth]
  *     responses:
- *       200:
- *         description: 로그인 성공
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/TokenResponse'
+ *       303:
+ *         description: 로그인 성공 후 ?code=...가 포함된 고정 프론트엔드 주소로 리다이렉트
+ *       400:
+ *         description: 유효하지 않거나 만료되었거나 이미 사용된 state
  */
-router.get('/kakao/callback', (req, res, next) => {
-  passport.authenticate('kakao', { session: false }, (err: unknown, user: Express.User | false) => {
-    if (err || !user) {
-      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
-    }
-    req.user = user;
-    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
-    next();
-  })(req, res, next);
-}, handleSocialCallback);
+router.get('/kakao/callback', oauthCallback('kakao'), handleSocialCallback);
 
 /**
  * @swagger
  * /auth/google:
  *   get:
  *     summary: 구글 로그인
- *     description: 구글 OAuth 로그인 페이지로 리다이렉트합니다.
+ *     description: 서명된 state와 브라우저 트랜잭션 쿠키를 발급하고 구글 로그인 페이지로 리다이렉트합니다.
  *     tags: [Auth]
+ *     parameters:
+ *       - in: query
+ *         name: target
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [web, local]
+ *         description: 고정 리다이렉트 대상. local은 비운영 환경에서만 허용됩니다.
  *     responses:
  *       302:
  *         description: 구글 로그인 페이지로 리다이렉트
+ *       400:
+ *         description: 허용되지 않은 target 또는 redirectUri 입력
  */
-router.get('/google', (req, res, next) => {
-  const redirectUri = req.query.redirectUri as string | undefined;
-  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
-  passport.authenticate('google', { scope: ['profile', 'email'], state } as object)(req, res, next);
-});
+router.get('/google', oauthStart('google', ['profile', 'email']));
 
 /**
  * @swagger
  * /auth/google/callback:
  *   get:
  *     summary: 구글 로그인 콜백
- *     description: 구글 로그인 완료 후 JWT 토큰을 반환합니다.
+ *     description: state와 브라우저 트랜잭션을 검증한 뒤 고정된 프론트엔드 주소로 일회용 code를 전달합니다. JWT는 URL에 포함하지 않습니다.
  *     tags: [Auth]
  *     responses:
+ *       303:
+ *         description: 로그인 성공 후 ?code=...가 포함된 고정 프론트엔드 주소로 리다이렉트
+ *       400:
+ *         description: 유효하지 않거나 만료되었거나 이미 사용된 state
+ */
+router.get('/google/callback', oauthCallback('google'), handleSocialCallback);
+
+/**
+ * @swagger
+ * /auth/exchange:
+ *   post:
+ *     summary: OAuth 일회용 코드 교환
+ *     description: OAuth 콜백으로 받은 일회용 code를 iLaw JWT로 교환합니다. code는 1분간 유효하며 한 번만 사용할 수 있습니다.
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code]
+ *             properties:
+ *               code:
+ *                 type: string
+ *     responses:
  *       200:
- *         description: 로그인 성공
+ *         description: 교환 성공
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/TokenResponse'
+ *       400:
+ *         description: code 누락
+ *       401:
+ *         description: 유효하지 않거나 만료되었거나 이미 사용된 code
  */
-router.get('/google/callback', (req, res, next) => {
-  passport.authenticate('google', { session: false }, (err: unknown, user: Express.User | false) => {
-    if (err || !user) {
-      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
-    }
-    req.user = user;
-    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
-    next();
-  })(req, res, next);
-}, handleSocialCallback);
-
-/**
- * @swagger
- * /auth/naver:
- *   get:
- *     summary: 네이버 로그인
- *     description: 네이버 OAuth 로그인 페이지로 리다이렉트합니다.
- *     tags: [Auth]
- *     responses:
- *       302:
- *         description: 네이버 로그인 페이지로 리다이렉트
- */
-router.get('/naver', (req, res, next) => {
-  const redirectUri = req.query.redirectUri as string | undefined;
-  const state = redirectUri ? Buffer.from(JSON.stringify({ redirectUri })).toString('base64') : undefined;
-  passport.authenticate('naver', { state } as object)(req, res, next);
-});
-
-/**
- * @swagger
- * /auth/naver/callback:
- *   get:
- *     summary: 네이버 로그인 콜백
- *     description: 네이버 로그인 완료 후 JWT 토큰을 반환합니다.
- *     tags: [Auth]
- *     responses:
- *       200:
- *         description: 로그인 성공
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/TokenResponse'
- */
-router.get('/naver/callback', (req, res, next) => {
-  passport.authenticate('naver', { session: false }, (err: unknown, user: Express.User | false) => {
-    if (err || !user) {
-      const appRedirectUri = parseRedirectUri(req.query.state as string) ?? 'ilaw://auth';
-      return res.send(`<!DOCTYPE html><html><body><script>window.location.href='${appRedirectUri}?error=login_failed';</script></body></html>`);
-    }
-    req.user = user;
-    (req as any).appRedirectUri = parseRedirectUri(req.query.state as string);
-    next();
-  })(req, res, next);
-}, handleSocialCallback);
+router.post('/exchange', exchangeOAuthCode);
 
 /**
  * @swagger
@@ -399,36 +410,6 @@ router.post('/google/token', googleSdkLogin);
 
 /**
  * @swagger
- * /auth/naver/token:
- *   post:
- *     summary: 네이버 SDK 로그인
- *     description: 네이버 SDK로 받은 accessToken으로 JWT를 발급합니다.
- *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [accessToken]
- *             properties:
- *               accessToken:
- *                 type: string
- *                 example: eyJhbGci...
- *     responses:
- *       200:
- *         description: 로그인 성공
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/TokenResponse'
- *       401:
- *         description: 유효하지 않은 토큰
- */
-router.post('/naver/token', naverSdkLogin);
-
-/**
- * @swagger
  * components:
  *   schemas:
  *     TokenResponse:
@@ -472,7 +453,7 @@ router.post('/naver/token', naverSdkLogin);
  *           nullable: true
  *         provider:
  *           type: string
- *           enum: [kakao, google, naver]
+ *           enum: [kakao, google]
  *           example: kakao
  *         profileCompleted:
  *           type: boolean

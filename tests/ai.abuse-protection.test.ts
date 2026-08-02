@@ -20,6 +20,9 @@ const prismaMock = vi.hoisted(() => ({
   manualArticle: {
     findMany: vi.fn(),
   },
+  searchSynonym: {
+    findMany: vi.fn(),
+  },
   $transaction: vi.fn(),
 }));
 
@@ -63,6 +66,7 @@ beforeEach(() => {
   prismaMock.aiChatHistory.findMany.mockResolvedValue([]);
   prismaMock.aiChatHistory.create.mockResolvedValue({});
   prismaMock.manualArticle.findMany.mockResolvedValue([]);
+  prismaMock.searchSynonym.findMany.mockResolvedValue([]);
   openAiCreateMock.mockResolvedValue({
     choices: [{ message: { content: '{"status":"unrelated"}' } }],
   });

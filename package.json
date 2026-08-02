@@ -14,7 +14,9 @@
     "seed:local": "ts-node prisma/seed.ts --apply --target=local",
     "seed:community-demo": "ts-node prisma/seed-community-demo.ts",
     "content:check": "ts-node prisma/notion-migrate.ts",
-    "migrate:local": "ts-node prisma/notion-migrate.ts --apply --target=local"
+    "migrate:local": "ts-node prisma/notion-migrate.ts --apply --target=local",
+    "ai:embed": "ts-node prisma/backfill-embeddings.ts",
+    "ai:embed:local": "ts-node prisma/backfill-embeddings.ts --apply --target=local"
   },
   "keywords": [],
   "author": "",

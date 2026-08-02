@@ -1,5 +1,10 @@
 import OpenAI from 'openai';
 import prisma from '../prisma/client';
+import { retrieveCandidates, type Candidate } from './ai.retrieval';
+import { buildRouterPrompt, buildGeneratePrompt } from './ai.prompts';
+import { detectCrisis, hotlinesFor } from './ai.crisis';
+import { getAgencies } from './manual.service';
+import { logDiagnosis } from './ai.metrics';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -9,8 +14,24 @@ const DEFAULT_OPENAI_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_COMPLETION_TOKENS = 600;
 const BURST_WINDOW_MS = 60_000;
 
+// 분당 버스트 제한은 프로세스 인메모리로 관리한다.
+// NOTE(다중 인스턴스): 이 카운터는 프로세스 로컬이라 N개 인스턴스로 수평
+// 확장하면 실질 한도가 N배로 샌다(일일 한도는 DB 기반이라 안전). 현재 배포는
+// 단일 인스턴스(railway.toml에 numReplicas 미지정)라 문제없다. 수평 확장 시
+// reserveDailyAiRequest와 동일한 원자적 DB 카운터(AiBurstUsage)로 이전할 것.
 type BurstWindow = { startedAt: number; count: number };
 const burstWindows = new Map<string, BurstWindow>();
+
+// 만료된 창을 주기적으로 정리해 유휴 사용자 항목이 무한 누적되지 않게 한다.
+// (기존 구현은 refund로 count가 0이 될 때만 삭제 → 유휴 항목이 영구 잔존)
+let lastBurstPruneMs = 0;
+function pruneExpiredBurstWindows(nowMs: number): void {
+  if (nowMs - lastBurstPruneMs < BURST_WINDOW_MS) return;
+  lastBurstPruneMs = nowMs;
+  for (const [userId, window] of burstWindows) {
+    if (nowMs - window.startedAt >= BURST_WINDOW_MS) burstWindows.delete(userId);
+  }
+}
 
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
@@ -31,6 +52,7 @@ export function consumeAiBurstSlot(
   nowMs = Date.now(),
 ): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
   const limit = positiveInteger(process.env.AI_BURST_REQUEST_LIMIT, DEFAULT_BURST_REQUEST_LIMIT);
+  pruneExpiredBurstWindows(nowMs);
   const current = burstWindows.get(userId);
 
   if (!current || nowMs - current.startedAt >= BURST_WINDOW_MS) {
@@ -58,6 +80,7 @@ export function refundAiBurstSlot(userId: string): void {
 
 export function resetAiBurstLimits(): void {
   burstWindows.clear();
+  lastBurstPruneMs = 0;
 }
 
 export async function reserveDailyAiRequest(
@@ -99,140 +122,208 @@ function maxCompletionTokens(): number {
   return positiveInteger(process.env.AI_MAX_COMPLETION_TOKENS, DEFAULT_MAX_COMPLETION_TOKENS);
 }
 
-// ── 인메모리 캐시 ──────────────────────────────────────────────
+// ── 메인 로직 ──────────────────────────────────────────────────
 
-type ManualItem = {
-  id: number;
-  question: string;
-  summary: string | null;
-  categorySlug: string;
-  categoryName: string;
-};
+export type DiagnoseStatus = 'relevant' | 'unrelated' | 'needs_clarification' | 'crisis';
 
-type ManualsByCategory = Record<string, { name: string; items: ManualItem[] }>;
+// suggestions 계약: manual은 Phase 1부터, agency/hotline은 Phase 2(위기대응)에서 채워진다.
+export type Suggestion =
+  | { type: 'manual'; id: number; label: string }
+  | { type: 'agency'; id: number; label: string; contact: string; region?: string }
+  | { type: 'hotline'; label: string; phone: string };
 
-let manualCache: ManualItem[] = [];
-let manualsByCategory: ManualsByCategory = {};
-
-export async function loadManualCache() {
-  manualCache = await prisma.manualArticle.findMany({
-    select: {
-      id: true,
-      question: true,
-      summary: true,
-      category: { select: { slug: true, name: true } },
-    },
-  }).then(rows => rows.map(r => ({
-    id: r.id,
-    question: r.question,
-    summary: r.summary,
-    categorySlug: r.category.slug,
-    categoryName: r.category.name,
-  })));
-
-  // 카테고리별 그룹화
-  manualsByCategory = {};
-  for (const m of manualCache) {
-    if (!manualsByCategory[m.categorySlug]) {
-      manualsByCategory[m.categorySlug] = { name: m.categoryName, items: [] };
-    }
-    manualsByCategory[m.categorySlug].items.push(m);
-  }
+export interface DiagnoseResult {
+  status: DiagnoseStatus;
+  situationSummary: string;
+  legalAdvice: string;
+  suggestions: Suggestion[];
+  followUpQuestion?: string;
+  chatEnded: boolean;
 }
 
-// ── 메인 로직 ──────────────────────────────────────────────────
+const UNRELATED_MESSAGE =
+  '저는 법률 관련 상황만 도와드릴 수 있어요. 법률적으로 어려운 상황이 생기면 언제든지 말씀해 주세요.';
+// 관련 상황으로 판단됐지만 근거 매뉴얼을 확정하지 못한 경우의 안전 폴백(빈 문자열 금지).
+const NO_MATCH_MESSAGE =
+  '말씀해 주신 상황을 살펴봤어요. 다만 정확한 안내를 위해 조금 더 구체적으로 상황을 알려주시면 더 도움이 될 것 같아요. 급하신 경우 전문 변호사 상담을 권해드려요.';
+// 위기 상황에서 안내 본문이 비더라도 반드시 반환하는 안전 우선 폴백.
+const CRISIS_MESSAGE =
+  '지금 위험한 상황이라면 망설이지 말고 즉시 112에 신고해 주세요. 아래 긴급 연락처로 도움을 받으실 수 있어요. 혼자 감당하지 마시고 꼭 도움을 요청하세요.';
+
+const MAX_AGENCY_SUGGESTIONS = 4;
+
+// 멀티턴/확장 상태(needs_clarification) 및 chatEnded=false 를 실제로 내보낼지 여부.
+// 프론트 계약 변경 전까지는 꺼둔 채 배포해 기존 동작(relevant/unrelated, chatEnded=true)을 유지한다.
+function multiTurnEnabled(): boolean {
+  return process.env.AI_MULTITURN_ENABLED === 'true';
+}
+
+// 컨트롤러가 스레드 생성/조회 여부를 결정할 때 사용.
+export function isMultiTurnEnabled(): boolean {
+  return multiTurnEnabled();
+}
+
+// 위기 상태(crisis) 및 agency/hotline suggestion 노출 여부. 프론트가 새 suggestion
+// 타입을 렌더링할 준비가 되면 켠다. 독립 배포를 위해 멀티턴과 분리된 플래그.
+function crisisEnabled(): boolean {
+  return process.env.AI_CRISIS_ENABLED === 'true';
+}
+
+interface RouterResult {
+  status: 'relevant' | 'unrelated' | 'needs_clarification';
+  situationSummary: string;
+  selectedIds: number[];
+  isCrisis: boolean;
+  followUpQuestion: string;
+}
+
+function parseRouterResponse(raw: string | null, candidateIds: Set<number>): RouterResult | null {
+  try {
+    const parsed = JSON.parse(raw ?? '{}');
+    const status =
+      parsed.status === 'relevant' || parsed.status === 'needs_clarification'
+        ? parsed.status
+        : 'unrelated';
+
+    const selectedIds: number[] = Array.isArray(parsed.references)
+      ? parsed.references
+          .filter((r: any) => r?.type === 'manual' && typeof r.id === 'number')
+          .map((r: any) => r.id as number)
+          // 후보 밖의 환각 ID 방지: 실제 추천 후보에 포함된 것만 채택
+          .filter((id: number) => candidateIds.has(id))
+      : [];
+
+    return {
+      status,
+      situationSummary: typeof parsed.situationSummary === 'string' ? parsed.situationSummary : '',
+      selectedIds,
+      isCrisis: parsed.isCrisis === true,
+      followUpQuestion: typeof parsed.followUpQuestion === 'string' ? parsed.followUpQuestion : '',
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function diagnose(
   message: string,
   nickname?: string,
   history: { question: string; legalAdvice: string }[] = [],
-): Promise<{
-  status: 'relevant' | 'unrelated';
-  situationSummary: string;
-  legalAdvice: string;
-  suggestions: { type: 'manual' | 'qa'; id: number; label: string }[];
-  chatEnded: boolean;
-}> {
+  opts: { region?: string; priorStatus?: string; userId?: string; conversationId?: string } = {},
+): Promise<DiagnoseResult> {
+  const startedAt = Date.now();
   const userLabel = nickname ? `${nickname}님` : '사용자';
+  const multiTurn = multiTurnEnabled();
 
-  // ── STEP 1용: 카테고리별 제목+summary 목록 구성 ──
-  const manualList = Object.entries(manualsByCategory)
-    .map(([slug, { name, items }]) => {
-      const lines = items
-        .map(m => `[MANUAL id=${m.id}] ${m.question}${m.summary ? ' / ' + m.summary : ''}`)
-        .join('\n');
-      return `=== ${name} (${slug}) ===\n${lines}`;
-    })
-    .join('\n\n');
+  // ── 관측 지표 누적 + 종료 시 한 줄 로깅 ──
+  let retrieveMs = 0, step1Ms = 0, step2Ms = 0;
+  let retrievedCount = 0;
+  let selectedForLog: number[] = [];
+  let step1Tokens: number | undefined;
+  let step2Tokens: number | undefined;
+
+  const finish = (result: DiagnoseResult, crisis = false): DiagnoseResult => {
+    logDiagnosis({
+      userId: opts.userId,
+      conversationId: opts.conversationId,
+      status: result.status,
+      crisis,
+      retrievedCount,
+      selectedIds: selectedForLog,
+      step1Tokens,
+      step2Tokens,
+      latencyMs: { retrieve: retrieveMs, step1: step1Ms, step2: step2Ms, total: Date.now() - startedAt },
+    });
+    return result;
+  };
+
+  // ── 검색: 전 카테고리에서 관련 후보 압축(전체목록 주입 폐기) ──
+  const tRetrieve = Date.now();
+  const candidates = await retrieveCandidates(message);
+  retrieveMs = Date.now() - tRetrieve;
+  retrievedCount = candidates.length;
+  const candidateIds = new Set(candidates.map(c => c.id));
 
   const historyMessages = history.flatMap(h => [
     { role: 'user' as const, content: h.question },
     { role: 'assistant' as const, content: h.legalAdvice },
   ]);
 
-  // ── GPT 1차: 분류 + 카테고리 선택 + 카테고리 내 매뉴얼 최대 3개 선택 ──
+  // 직전 턴이 되묻기였다면, 이번 메시지는 그에 대한 답변임을 라우터에 알린다.
+  if (opts.priorStatus === 'needs_clarification') {
+    historyMessages.push({
+      role: 'assistant' as const,
+      content: '(직전에 사용자에게 상황을 더 구체적으로 물었습니다. 아래 답변을 반영해 다시 진단하세요.)',
+    });
+  }
+
+  // ── GPT 1차(라우터): 분류 + 후보 중 매뉴얼 선택 ──
+  const tStep1 = Date.now();
   const step1Res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     max_completion_tokens: maxCompletionTokens(),
     response_format: { type: 'json_object' },
     messages: [
-      {
-        role: 'system',
-        content: `당신은 법률 정보 서비스의 AI 어시스턴트입니다.
-아래 카테고리별 매뉴얼 목록을 읽고 다음을 수행하세요.
-
-1. 사용자 메시지를 아래 두 가지로 분류하세요.
-   - "relevant": 본인이 겪고 있는 법률 관련 상황 설명
-   - "unrelated": 인사말·잡담·일반 법률 지식 질문·법률과 무관한 내용·상황 설명이 없는 경우
-
-2. status가 "relevant"일 때만:
-   a. ${userLabel}의 상황을 2~3문장으로 요약하세요. 반드시 "${userLabel}은(는)"으로 시작하세요.
-   b. 사용자 상황에 가장 적합한 카테고리 slug를 하나 선택하세요.
-   c. 선택한 카테고리 내에서 사용자 상황과 가장 직접적으로 관련된 매뉴얼을 최대 3개 골라 ID를 반환하세요.
-      - 사용자가 피해자라면 피해자 입장의 항목을, 가해자이거나 처벌이 궁금한 경우라면 그에 맞는 항목을 선택하세요.
-      - 확실하게 관련 있는 항목이 없으면 빈 배열([])을 반환하세요. 억지로 채우지 마세요.
-
-반드시 다음 JSON 형식으로만 응답하세요:
-{"status":"relevant","categorySlug":"슬러그","situationSummary":"...","references":[{"type":"manual","id":숫자}]}
-status가 relevant가 아니면: {"status":"unrelated","categorySlug":"","situationSummary":"","references":[]}
-
-=== 매뉴얼 목록 ===
-${manualList}`,
-      },
+      { role: 'system', content: buildRouterPrompt(candidates, userLabel, { allowClarification: multiTurn }) },
       ...historyMessages,
       { role: 'user', content: message },
     ],
   }, openAiRequestOptions());
+  step1Ms = Date.now() - tStep1;
+  step1Tokens = step1Res.usage?.total_tokens;
 
-  let situationSummary = '';
-  let categorySlug = '';
-  let selectedIds: number[] = [];
+  const router = parseRouterResponse(step1Res.choices[0].message.content, candidateIds);
 
-  try {
-    const parsed = JSON.parse(step1Res.choices[0].message.content ?? '{}');
-
-    if (parsed.status !== 'relevant') {
-      return {
-        status: 'unrelated',
-        situationSummary: '',
-        legalAdvice: '저는 법률 관련 상황만 도와드릴 수 있어요. 법률적으로 어려운 상황이 생기면 언제든지 말씀해 주세요.',
-        suggestions: [],
-        chatEnded: true,
-      };
-    }
-
-    situationSummary = parsed.situationSummary ?? '';
-    categorySlug = parsed.categorySlug ?? '';
-    selectedIds = (parsed.references ?? [])
-      .filter((r: any) => r.type === 'manual' && typeof r.id === 'number')
-      .map((r: any) => r.id as number);
-
-    console.log('[AI] category:', categorySlug, '/ selected manuals:', selectedIds);
-  } catch {
-    // 파싱 실패 시 빈 선택으로 진행
+  if (!router) {
+    console.error('[AI] router JSON parse failed; returning safe fallback');
+    return finish({
+      status: 'unrelated',
+      situationSummary: '',
+      legalAdvice: UNRELATED_MESSAGE,
+      suggestions: [],
+      chatEnded: true,
+    });
   }
 
-  // ── 선택된 매뉴얼 전체 내용 DB 조회 ──
+  if (router.status === 'unrelated') {
+    return finish({
+      status: 'unrelated',
+      situationSummary: '',
+      legalAdvice: UNRELATED_MESSAGE,
+      suggestions: [],
+      chatEnded: true,
+    });
+  }
+
+  // 되묻기: 멀티턴이 켜졌고 질문이 있을 때만 별도 상태로 반환한다.
+  if (router.status === 'needs_clarification' && multiTurn && router.followUpQuestion) {
+    return finish({
+      status: 'needs_clarification',
+      situationSummary: router.situationSummary,
+      legalAdvice: '',
+      suggestions: [],
+      followUpQuestion: router.followUpQuestion,
+      chatEnded: false,
+    });
+  }
+
+  // ── relevant 처리 ──
+  // LLM이 하나도 못 골랐지만 후보가 있으면 점수 1위를 폴백 채택("빈 안내" 방지).
+  let selectedIds = router.selectedIds;
+  if (selectedIds.length === 0 && candidates.length > 0) {
+    selectedIds = [candidates[0].id];
+  }
+  selectedForLog = selectedIds;
+
+  const selectedCandidates = selectedIds
+    .map(id => candidates.find(c => c.id === id))
+    .filter((c): c is Candidate => c !== undefined);
+  const selectedSlugs = [...new Set(selectedCandidates.map(c => c.categorySlug))];
+
+  // 위기 판정: 룰(키워드) OR 라우터 LLM 신호(이중 판정). 플래그로 게이트.
+  const crisis = crisisEnabled()
+    && (router.isCrisis || detectCrisis(message, selectedSlugs).level === 'high');
+
   const fullArticles = selectedIds.length > 0
     ? await prisma.manualArticle.findMany({
         where: { id: { in: selectedIds } },
@@ -240,49 +331,61 @@ ${manualList}`,
       })
     : [];
 
-  // ── GPT 2차: 선택된 매뉴얼 전체 내용 기반 법적 안내 생성 ──
+  // ── GPT 2차(생성): 선택 매뉴얼 전문 근거 RAG 안내 ──
   const contentBlocks = fullArticles
     .map(a => `[매뉴얼] ${a.question}\n${a.content}`)
     .join('\n\n---\n\n');
 
   let legalAdvice = '';
-
   if (contentBlocks) {
+    const tStep2 = Date.now();
     const step2Res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       max_completion_tokens: maxCompletionTokens(),
       messages: [
-        {
-          role: 'system',
-          content: `당신은 법률 정보 서비스의 따뜻한 AI 어시스턴트입니다.
-아래 매뉴얼 내용만을 근거로 안내를 제공하세요.
-
-반드시 다음 순서로 응답하세요:
-1. 먼저 ${userLabel}의 상황에 진심으로 공감하는 한 문장으로 시작하세요. (예: "정말 힘드셨겠어요.", "많이 당황스러우셨겠어요.")
-2. 이어서 친근하고 따뜻한 말투로 법적 안내를 2~3문장 제공하세요.
-
-제공된 매뉴얼 외의 정보는 사용하지 마세요.
-심각한 상황이라면 전문 변호사 상담을 권유하세요.
-텍스트로만 응답하세요.
-
-=== 매뉴얼 내용 ===
-${contentBlocks}`,
-        },
+        { role: 'system', content: buildGeneratePrompt(contentBlocks, userLabel, { crisis }) },
         ...historyMessages,
         { role: 'user', content: message },
       ],
     }, openAiRequestOptions());
+    step2Ms = Date.now() - tStep2;
+    step2Tokens = step2Res.usage?.total_tokens;
     legalAdvice = step2Res.choices[0].message.content?.trim() ?? '';
   }
 
-  // ── suggestions: 선택된 매뉴얼 반환 ──
-  const categoryItems = manualsByCategory[categorySlug]?.items ?? [];
-  const suggestions = selectedIds
-    .map(id => {
-      const label = categoryItems.find(m => m.id === id)?.question;
-      return label ? { type: 'manual' as const, id, label } : null;
-    })
-    .filter((s): s is NonNullable<typeof s> => s !== null);
+  // 폴백: 어떤 이유로든 안내가 비면 고정 문구로 대체(빈 문자열 금지).
+  if (!legalAdvice) legalAdvice = crisis ? CRISIS_MESSAGE : NO_MATCH_MESSAGE;
 
-  return { status: 'relevant', situationSummary, legalAdvice, suggestions, chatEnded: true };
+  // ── suggestions 조립: (위기 시) 핫라인 → 기관 → 매뉴얼 순으로 상단 배치 ──
+  const manualSuggestions: Suggestion[] = selectedCandidates.map(c => ({
+    type: 'manual', id: c.id, label: c.question,
+  }));
+
+  let suggestions: Suggestion[] = manualSuggestions;
+  if (crisis) {
+    const hotlineSuggestions: Suggestion[] = hotlinesFor(selectedSlugs).map(h => ({
+      type: 'hotline', label: h.label, phone: h.phone,
+    }));
+
+    const agencyRows = (await Promise.all(selectedSlugs.map(slug => getAgencies(slug)))).flat();
+    // 사용자 지역과 일치하는 기관을 앞으로.
+    if (opts.region) {
+      agencyRows.sort((a, b) =>
+        (b.region === opts.region ? 1 : 0) - (a.region === opts.region ? 1 : 0));
+    }
+    const agencySuggestions: Suggestion[] = agencyRows.slice(0, MAX_AGENCY_SUGGESTIONS).map(a => ({
+      type: 'agency', id: a.id, label: a.name, contact: a.contact,
+      ...(a.region ? { region: a.region } : {}),
+    }));
+
+    suggestions = [...hotlineSuggestions, ...agencySuggestions, ...manualSuggestions];
+  }
+
+  return finish({
+    status: crisis ? 'crisis' : 'relevant',
+    situationSummary: router.situationSummary,
+    legalAdvice,
+    suggestions,
+    chatEnded: multiTurn ? false : true,
+  }, crisis);
 }

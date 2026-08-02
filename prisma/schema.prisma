@@ -7,7 +7,8 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   // pg_trgm accelerates the LIKE '%term%' keyword search (manual / qa / community).
-  extensions = [pg_trgm]
+  // vector(pgvector) powers the AI diagnosis semantic retrieval (Phase 4 hybrid search).
+  extensions = [pg_trgm, vector]
 }
 
 model User {
@@ -47,6 +48,7 @@ model User {
   communityPostReports    CommunityPostReport[]
   communityCommentReports CommunityCommentReport[]
   aiChatHistories              AiChatHistory[]
+  aiConversations              AiConversation[]
   aiDailyUsages                AiDailyUsage[]
   oauthLoginCodes              OAuthLoginCode[]
 
@@ -96,9 +98,15 @@ model ManualArticle {
   order      Int            @default(0)
   scraps     ArticleScrap[]
 
+  // AI 시맨틱 검색용(Phase 4). Prisma가 직접 다루지 못하므로 조회는 $queryRaw,
+  // 쓰기는 backfill 스크립트에서 처리한다. embedInputHash는 재임베딩 판정용.
+  embedding      Unsupported("vector(1536)")?
+  embedInputHash String?
+
   @@index([question(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
+  // vector HNSW 인덱스는 Prisma 스키마로 표현 불가 → 마이그레이션에서 직접 생성.
 }
 
 model Agency {
@@ -310,17 +318,36 @@ model ArticleScrap {
   @@unique([userId, articleId])
 }
 
+model AiConversation {
+  id         String          @id @default(cuid())
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  title      String?         // 첫 상황 요약에서 유도한 대화 제목
+  status     String          @default("open") // open | closed
+  lastStatus String?         // 마지막 진단 상태(needs_clarification 등) — 다음 턴 힌트
+  messages   AiChatHistory[]
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
 model AiChatHistory {
-  id               Int      @id @default(autoincrement())
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               Int             @id @default(autoincrement())
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String
+  // nullable: 스레드 도입 전 기존 행 보존. 멀티턴 시에만 연결된다.
+  conversation     AiConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId   String?
   question         String
   situationSummary String
   legalAdvice      String
   suggestions      Json
-  createdAt        DateTime @default(now())
+  status           String?         // 이 턴의 진단 상태(관측·문맥 복원용)
+  createdAt        DateTime        @default(now())
 
   @@index([userId])
+  @@index([conversationId, createdAt])
 }
 
 model AiDailyUsage {

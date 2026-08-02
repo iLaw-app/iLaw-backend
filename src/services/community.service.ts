@@ -9,9 +9,15 @@ import { createNotification } from './notification.service';
 const REPORT_DELETE_THRESHOLD = 3;
 
 const COMMENT_MASK = {
-  hidden: '비공개 처리된 댓글입니다.',
-  deleted: '삭제된 댓글입니다.',
+  hidden: '욕설이 감지되어 비공개된 댓글입니다.',   // 욕설 자동 감지 → 블라인드
+  removed: '신고가 누적되어 삭제된 댓글입니다.',      // 신고 3회 누적 → 자동 삭제
+  deleted: '삭제된 댓글입니다.',                      // 작성자 본인 삭제
 } as const;
+
+// 목록/상세에 노출하지 않는 게시글 상태 (visible 이 아닌 모든 상태)
+const HIDDEN_POST_STATUSES = ['hidden', 'removed', 'deleted'];
+// 댓글 수 집계에서 제외할 상태 (삭제·신고삭제. 블라인드는 자리표시로 남으므로 카운트 유지)
+const UNCOUNTED_COMMENT_STATUSES = ['removed', 'deleted'];
 
 type PollOptionDefinition = { label: string };
 type PollDefinition = { options: PollOptionDefinition[] };
@@ -118,7 +124,7 @@ export async function listPosts(page: number, limit: number) {
         _count: {
           select: {
             likes: true,
-            comments: { where: { status: { not: 'deleted' } } },
+            comments: { where: { status: { notIn: UNCOUNTED_COMMENT_STATUSES } } },
             bookmarks: true,
           },
         },
@@ -166,7 +172,7 @@ export async function getPost(id: number, userId?: string) {
   });
   if (!post) return null;
   // 비공개/삭제된 게시글은 피드에서도 상세에서도 노출하지 않는다.
-  if (post.status === 'hidden' || post.status === 'deleted') return null;
+  if (HIDDEN_POST_STATUSES.includes(post.status)) return null;
 
   const [liked, bookmarked, vote, voteCounts] = await Promise.all([
     userId
@@ -280,7 +286,7 @@ export async function updatePost(
 
 export async function deletePost(id: number, userId: string) {
   const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true, status: true } });
-  if (!post || post.status === 'deleted') return { error: 'not_found' as const };
+  if (!post || post.status === 'deleted' || post.status === 'removed') return { error: 'not_found' as const };
   if (post.authorId !== userId) return { error: 'forbidden' as const };
 
   await prisma.communityPost.update({ where: { id }, data: { status: 'deleted' } });
@@ -342,7 +348,7 @@ export async function getMyBookmarks(userId: string) {
             select: {
               likes: true,
               bookmarks: true,
-              comments: { where: { status: { not: 'deleted' } } },
+              comments: { where: { status: { notIn: UNCOUNTED_COMMENT_STATUSES } } },
             },
           },
         },
@@ -419,9 +425,11 @@ function buildCommentTree(
   userId?: string,
 ) {
   const mapped: CommunityCommentResponse[] = comments.map((c) => {
-    // 비공개(hidden)/삭제(deleted) 댓글은 원문·좋아요를 가리고 placeholder만 노출한다.
-    const masked = c.status === 'hidden' || c.status === 'deleted';
-    const content = masked ? COMMENT_MASK[c.status as 'hidden' | 'deleted'] : c.content;
+    // visible이 아닌 댓글(욕설 블라인드/신고삭제/작성자삭제)은 원문·좋아요를 가리고 원인별 안내문만 노출한다.
+    const masked = c.status !== 'visible';
+    const content = masked
+      ? (COMMENT_MASK[c.status as keyof typeof COMMENT_MASK] ?? COMMENT_MASK.deleted)
+      : c.content;
     const likes = masked ? 0 : c._count.likes;
     const liked = masked ? false : !!c.likes?.length;
 
@@ -514,7 +522,7 @@ export async function createComment(postId: number, userId: string, content: str
   if (containsProfanity(content)) return { error: 'profanity_blocked' as const };
 
   const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true, status: true } });
-  if (!post || post.status === 'hidden' || post.status === 'deleted') return { error: 'not_found' as const };
+  if (!post || HIDDEN_POST_STATUSES.includes(post.status)) return { error: 'not_found' as const };
   if (parentId) {
     const parent = await prisma.communityComment.findUnique({
       where: { id: parentId },
@@ -562,7 +570,7 @@ export async function deleteComment(commentId: number, userId: string) {
     where: { id: commentId },
     select: { authorId: true, status: true },
   });
-  if (!comment || comment.status === 'deleted') return { error: 'not_found' as const };
+  if (!comment || comment.status === 'deleted' || comment.status === 'removed') return { error: 'not_found' as const };
   if (comment.authorId !== userId) return { error: 'forbidden' as const };
 
   await prisma.communityComment.update({ where: { id: commentId }, data: { status: 'deleted' } });
@@ -622,7 +630,7 @@ export async function reportComment(commentId: number, userId: string, reason?: 
     where: { id: commentId },
     select: { authorId: true, status: true },
   });
-  if (!comment || comment.status === 'deleted') return { error: 'not_found' as const };
+  if (!comment || comment.status === 'deleted' || comment.status === 'removed') return { error: 'not_found' as const };
   if (comment.authorId && comment.authorId === userId) return { error: 'cannot_report_self' as const };
 
   try {
@@ -637,8 +645,8 @@ export async function reportComment(commentId: number, userId: string, reason?: 
   let deleted = false;
   if (count >= REPORT_DELETE_THRESHOLD) {
     const updated = await prisma.communityComment.updateMany({
-      where: { id: commentId, status: { not: 'deleted' } },
-      data: { status: 'deleted' },
+      where: { id: commentId, status: { notIn: ['deleted', 'removed'] } },
+      data: { status: 'removed' },
     });
     if (updated.count > 0) {
       deleted = true;
@@ -662,7 +670,7 @@ export async function reportPost(postId: number, userId: string, reason?: string
     where: { id: postId },
     select: { authorId: true, status: true },
   });
-  if (!post || post.status === 'deleted') return { error: 'not_found' as const };
+  if (!post || post.status === 'deleted' || post.status === 'removed') return { error: 'not_found' as const };
   if (post.authorId && post.authorId === userId) return { error: 'cannot_report_self' as const };
 
   try {
@@ -676,8 +684,8 @@ export async function reportPost(postId: number, userId: string, reason?: string
   let deleted = false;
   if (count >= REPORT_DELETE_THRESHOLD) {
     const updated = await prisma.communityPost.updateMany({
-      where: { id: postId, status: { not: 'deleted' } },
-      data: { status: 'deleted' },
+      where: { id: postId, status: { notIn: ['deleted', 'removed'] } },
+      data: { status: 'removed' },
     });
     if (updated.count > 0) {
       deleted = true;

@@ -108,11 +108,11 @@ async function main() {
       },
     });
 
-    // 5) 신고 3회 누적으로 자동 삭제된 댓글(deleted). 서로 다른 3명의 신고 이력을 함께 남긴다.
+    // 5) 신고 3회 누적으로 자동 삭제된 댓글(removed). 서로 다른 3명의 신고 이력을 함께 남긴다.
     const removed = await tx.communityComment.create({
       data: {
         postId: post.id, authorId: uB, content: '느금마 같은 소리 하고 앉아있네 ㅋㅋ',
-        status: 'deleted', createdAt: at(5),
+        status: 'removed', createdAt: at(5),
       },
       select: { id: true },
     });

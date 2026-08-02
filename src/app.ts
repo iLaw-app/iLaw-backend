@@ -2,8 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
-import swaggerUi from 'swagger-ui-express';
-import swaggerSpec from './swagger';
 import authRouter from './routes/auth';
 import manualRouter from './routes/manual';
 import qnaRouter from './routes/qa';
@@ -28,7 +26,6 @@ app.use('/notifications', notificationsRouter);
 app.use('/community', communityRouter);
 app.use('/ai', aiRouter);
 app.use('/home', homeRouter);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });

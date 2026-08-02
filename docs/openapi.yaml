@@ -882,6 +882,33 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/report:
+    post:
+      tags: [Community]
+      summary: 게시글 신고
+      description: 서로 다른 사용자 3명이 신고하면 게시글이 자동으로 숨김(soft delete) 처리됩니다.
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, description: 신고 사유 (선택) } }
+      responses:
+        '201':
+          description: 신고 접수 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 이미 신고한 대상
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /community/{id}/comments:
     get:
       tags: [Community]
@@ -940,6 +967,35 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/comments/{commentId}/report:
+    post:
+      tags: [Community]
+      summary: 댓글 신고
+      description: 서로 다른 사용자 3명이 신고하면 댓글이 자동으로 삭제(soft delete) 처리됩니다.
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { name: commentId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { reason: { type: string, description: 신고 사유 (선택) } }
+      responses:
+        '201':
+          description: 신고 접수 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReportResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 이미 신고한 대상
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /community/{id}/comments/{commentId}:
     delete:
       tags: [Community]
@@ -1400,6 +1456,13 @@ components:
         replies:
           type: array
           items: { $ref: '#/components/schemas/CommentNode' }
+
+    ReportResult:
+      type: object
+      properties:
+        reported: { type: boolean }
+        count: { type: integer, description: 서로 다른 신고자 누적 수 }
+        deleted: { type: boolean, description: 이번 신고로 임계치(3명)에 도달해 자동 삭제되었는지 }
 
     AiSuggestion:
       type: object

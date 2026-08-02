@@ -12,6 +12,7 @@
     "user:set-role": "ts-node src/cli/set-user-role.ts",
     "seed:check": "ts-node prisma/seed.ts",
     "seed:local": "ts-node prisma/seed.ts --apply --target=local",
+    "seed:community-demo": "ts-node prisma/seed-community-demo.ts",
     "content:check": "ts-node prisma/notion-migrate.ts",
     "migrate:local": "ts-node prisma/notion-migrate.ts --apply --target=local"
   },

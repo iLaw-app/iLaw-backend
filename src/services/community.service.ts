@@ -1,6 +1,17 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
 import { scoreAndRank } from './search.util';
+import { containsProfanity } from './profanity';
+import { moderateAndBlind } from './moderation.service';
+import { createNotification } from './notification.service';
+
+const REPORT_DELETE_THRESHOLD = 3;
+
+const COMMENT_MASK = {
+  hidden: '비공개 처리된 댓글입니다.',
+  deleted: '삭제된 댓글입니다.',
+} as const;
 
 type PollOptionDefinition = { label: string };
 type PollDefinition = { options: PollOptionDefinition[] };
@@ -93,6 +104,7 @@ export async function listPosts(page: number, limit: number) {
     prisma.communityPost.findMany({
       skip,
       take: limit,
+      where: { status: 'visible' },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -103,10 +115,16 @@ export async function listPosts(page: number, limit: number) {
         createdAt: true,
         updatedAt: true,
         author: { select: { nickname: true } },
-        _count: { select: { likes: true, comments: true, bookmarks: true } },
+        _count: {
+          select: {
+            likes: true,
+            comments: { where: { status: { not: 'deleted' } } },
+            bookmarks: true,
+          },
+        },
       },
     }),
-    prisma.communityPost.count(),
+    prisma.communityPost.count({ where: { status: 'visible' } }),
   ]);
   const voteCounts = await getVoteCounts(posts.map((post) => post.id));
 
@@ -147,6 +165,8 @@ export async function getPost(id: number, userId?: string) {
     },
   });
   if (!post) return null;
+  // 비공개/삭제된 게시글은 피드에서도 상세에서도 노출하지 않는다.
+  if (post.status === 'hidden' || post.status === 'deleted') return null;
 
   const [liked, bookmarked, vote, voteCounts] = await Promise.all([
     userId
@@ -185,6 +205,11 @@ export async function createPost(
   userId: string,
   data: { title: string; content?: string; poll?: object; imageUrls?: string[] },
 ) {
+  // 1차 필터: 로컬 금칙어 사전에 걸리면 작성 자체를 거부한다.
+  if (containsProfanity(data.title) || containsProfanity(data.content)) {
+    return { error: 'profanity_blocked' as const };
+  }
+
   let poll: PollDefinition | undefined;
   if (data.poll !== undefined) {
     const parsed = parsePollInput(data.poll);
@@ -202,6 +227,15 @@ export async function createPost(
     },
     select: { id: true, title: true, createdAt: true },
   });
+
+  // 2차 필터: 게시 후 백그라운드 검열(클린봇 방식). 응답을 막지 않는다.
+  void moderateAndBlind({
+    kind: 'post',
+    id: post.id,
+    text: [data.title, data.content].filter(Boolean).join('\n'),
+    authorId: userId,
+  });
+
   return { data: post };
 }
 
@@ -245,11 +279,11 @@ export async function updatePost(
 }
 
 export async function deletePost(id: number, userId: string) {
-  const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true } });
-  if (!post) return { error: 'not_found' as const };
+  const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true, status: true } });
+  if (!post || post.status === 'deleted') return { error: 'not_found' as const };
   if (post.authorId !== userId) return { error: 'forbidden' as const };
 
-  await prisma.communityPost.delete({ where: { id } });
+  await prisma.communityPost.update({ where: { id }, data: { status: 'deleted' } });
   return { data: true };
 }
 
@@ -293,7 +327,7 @@ export async function toggleBookmark(postId: number, userId: string) {
 
 export async function getMyBookmarks(userId: string) {
   const bookmarks = await prisma.communityBookmark.findMany({
-    where: { userId },
+    where: { userId, post: { status: 'visible' } },
     orderBy: { createdAt: 'desc' },
     include: {
       post: {
@@ -304,7 +338,13 @@ export async function getMyBookmarks(userId: string) {
           createdAt: true,
           updatedAt: true,
           imageUrls: true,
-          _count: { select: { likes: true, bookmarks: true, comments: true } },
+          _count: {
+            select: {
+              likes: true,
+              bookmarks: true,
+              comments: { where: { status: { not: 'deleted' } } },
+            },
+          },
         },
       },
     },
@@ -353,6 +393,7 @@ type CommunityCommentRow = {
   parentId: number | null;
   createdAt: Date;
   content: string;
+  status: string;
   author: { id: string; nickname: string | null } | null;
   likes?: { userId: string }[];
   _count: { likes: number };
@@ -378,15 +419,21 @@ function buildCommentTree(
   userId?: string,
 ) {
   const mapped: CommunityCommentResponse[] = comments.map((c) => {
+    // 비공개(hidden)/삭제(deleted) 댓글은 원문·좋아요를 가리고 placeholder만 노출한다.
+    const masked = c.status === 'hidden' || c.status === 'deleted';
+    const content = masked ? COMMENT_MASK[c.status as 'hidden' | 'deleted'] : c.content;
+    const likes = masked ? 0 : c._count.likes;
+    const liked = masked ? false : !!c.likes?.length;
+
     const authorId = c.author?.id ?? c.authorId ?? null;
     if (!authorId) {
       return {
         id: c.id,
         nickname: ANONYMOUS_POST_AUTHOR,
         createdAt: c.createdAt,
-        content: c.content,
-        likes: c._count.likes,
-        liked: !!c.likes?.length,
+        content,
+        likes,
+        liked,
         parentId: c.parentId,
         isAuthor: false,
         isPostAuthor: false,
@@ -398,9 +445,9 @@ function buildCommentTree(
       id: c.id,
       nickname: isPostAuthor ? '익명(글쓴이)' : `익명${labels.get(authorId) ?? '?'}`,
       createdAt: c.createdAt,
-      content: c.content,
-      likes: c._count.likes,
-      liked: !!c.likes?.length,
+      content,
+      likes,
+      liked,
       parentId: c.parentId,
       isAuthor: userId ? authorId === userId : false,
       isPostAuthor,
@@ -463,8 +510,11 @@ export async function listComments(postId: number, userId?: string) {
 }
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
-  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true } });
-  if (!post) return { error: 'not_found' as const };
+  // 1차 필터: 로컬 금칙어 사전에 걸리면 작성 자체를 거부한다.
+  if (containsProfanity(content)) return { error: 'profanity_blocked' as const };
+
+  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true, status: true } });
+  if (!post || post.status === 'hidden' || post.status === 'deleted') return { error: 'not_found' as const };
   if (parentId) {
     const parent = await prisma.communityComment.findUnique({
       where: { id: parentId },
@@ -477,6 +527,9 @@ export async function createComment(postId: number, userId: string, content: str
   const comment = await prisma.communityComment.create({
     data: { postId, authorId: userId, content, parentId },
   });
+
+  // 2차 필터: 게시 후 백그라운드 검열(클린봇 방식). 응답을 막지 않는다.
+  void moderateAndBlind({ kind: 'comment', id: comment.id, text: content, authorId: userId });
 
   // 방금 생성한 댓글까지 포함해 작성자 등장 순서로 번호를 다시 계산
   const allComments = await prisma.communityComment.findMany({
@@ -507,20 +560,21 @@ export async function createComment(postId: number, userId: string, content: str
 export async function deleteComment(commentId: number, userId: string) {
   const comment = await prisma.communityComment.findUnique({
     where: { id: commentId },
-    select: { authorId: true },
+    select: { authorId: true, status: true },
   });
-  if (!comment) return { error: 'not_found' as const };
+  if (!comment || comment.status === 'deleted') return { error: 'not_found' as const };
   if (comment.authorId !== userId) return { error: 'forbidden' as const };
 
-  await prisma.communityComment.delete({ where: { id: commentId } });
+  await prisma.communityComment.update({ where: { id: commentId }, data: { status: 'deleted' } });
   return { data: true };
 }
 
 export async function searchCommunityPosts(query: string, debug = false) {
-  const terms = expandQuery(query);
+  const terms = await expandQuery(query);
 
   const posts = await prisma.communityPost.findMany({
     where: {
+      status: 'visible',
       OR: terms.flatMap((term) => [
         { title: { contains: term } },
         { content: { contains: term } },
@@ -531,16 +585,22 @@ export async function searchCommunityPosts(query: string, debug = false) {
       title: true,
       content: true,
       createdAt: true,
-      _count: { select: { likes: true, comments: true, bookmarks: true } },
+      _count: {
+        select: {
+          likes: true,
+          comments: { where: { status: { not: 'deleted' } } },
+          bookmarks: true,
+        },
+      },
     },
-    take: 30,
+    take: 100,
   });
 
   const ranked = scoreAndRank(
     posts,
     terms,
     (p) => [[p.title, 2], [p.content ?? '', 1.5]],
-    1,
+    { phrase: query },
   );
 
   const results = ranked
@@ -551,6 +611,89 @@ export async function searchCommunityPosts(query: string, debug = false) {
     );
 
   return { results, expandedTerms: terms };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+export async function reportComment(commentId: number, userId: string, reason?: string) {
+  const comment = await prisma.communityComment.findUnique({
+    where: { id: commentId },
+    select: { authorId: true, status: true },
+  });
+  if (!comment || comment.status === 'deleted') return { error: 'not_found' as const };
+  if (comment.authorId && comment.authorId === userId) return { error: 'cannot_report_self' as const };
+
+  try {
+    await prisma.communityCommentReport.create({ data: { commentId, reporterId: userId, reason } });
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: 'already_reported' as const };
+    throw error;
+  }
+
+  // unique(commentId, reporterId) 제약이 있으므로 신고 건수 = 서로 다른 신고자 수.
+  const count = await prisma.communityCommentReport.count({ where: { commentId } });
+  let deleted = false;
+  if (count >= REPORT_DELETE_THRESHOLD) {
+    const updated = await prisma.communityComment.updateMany({
+      where: { id: commentId, status: { not: 'deleted' } },
+      data: { status: 'deleted' },
+    });
+    if (updated.count > 0) {
+      deleted = true;
+      if (comment.authorId) {
+        await createNotification(
+          comment.authorId,
+          'community_removed',
+          '댓글이 삭제되었습니다',
+          '신고가 누적되어 작성하신 댓글이 삭제되었습니다.',
+          commentId,
+        );
+      }
+    }
+  }
+
+  return { data: { reported: true, count, deleted } };
+}
+
+export async function reportPost(postId: number, userId: string, reason?: string) {
+  const post = await prisma.communityPost.findUnique({
+    where: { id: postId },
+    select: { authorId: true, status: true },
+  });
+  if (!post || post.status === 'deleted') return { error: 'not_found' as const };
+  if (post.authorId && post.authorId === userId) return { error: 'cannot_report_self' as const };
+
+  try {
+    await prisma.communityPostReport.create({ data: { postId, reporterId: userId, reason } });
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: 'already_reported' as const };
+    throw error;
+  }
+
+  const count = await prisma.communityPostReport.count({ where: { postId } });
+  let deleted = false;
+  if (count >= REPORT_DELETE_THRESHOLD) {
+    const updated = await prisma.communityPost.updateMany({
+      where: { id: postId, status: { not: 'deleted' } },
+      data: { status: 'deleted' },
+    });
+    if (updated.count > 0) {
+      deleted = true;
+      if (post.authorId) {
+        await createNotification(
+          post.authorId,
+          'community_removed',
+          '게시글이 삭제되었습니다',
+          '신고가 누적되어 작성하신 게시글이 삭제되었습니다.',
+          postId,
+        );
+      }
+    }
+  }
+
+  return { data: { reported: true, count, deleted } };
 }
 
 export async function toggleCommentLike(commentId: number, userId: string) {

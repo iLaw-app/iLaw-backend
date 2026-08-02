@@ -1,49 +1,51 @@
-const SYNONYM_GROUPS: string[][] = [
-  // 노동 / 알바
-  ['알바', '아르바이트', '알바비', '파트타임', '시급', '단기알바'],
-  ['임금', '급여', '월급', '알바비', '봉급', '연봉'],
-  ['임금체불', '미지급', '못 받음', '안 줌', '체불', '급여 안 줌'],
-  ['해고', '권고사직', '강제퇴직', '해임', '면직', '퇴사', '짤림'],
-  ['근로계약', '계약서', '고용계약'],
-  ['노동', '근로', '직장', '일자리', '취업'],
-  ['산재', '산업재해', '업무상재해', '직업병', '업무 중 부상'],
+import prisma from '../prisma/client';
 
-  // 성폭력 / 성범죄
-  ['성폭력', '성추행', '성희롱', '강간', '성적폭행', '성범죄'],
-  ['직장내성희롱', '성희롱', '직장 성폭력'],
-  ['데이트폭력', '교제폭력', '연인폭력', '연애폭력'],
-  ['스토킹', '스토커', '따라다님', '집착'],
+// Synonym groups now live in the SearchSynonym table (data-driven, editable
+// without a deploy). The seed / source of truth is the migration
+// 20260802060000_search_synonyms_and_trgm_indexes.
 
-  // 아동학대
-  ['아동학대', '아이학대', '어린이학대', '청소년학대', '학대'],
-  ['방임', '방치', '돌봄 방기'],
-
-  // 온라인 폭력
-  ['사이버폭력', '온라인폭력', '인터넷폭력', '디지털폭력', '사이버불링', '싸불', '온라인 괴롭힘'],
-  ['명예훼손', '비방', '허위사실 유포', '악플', '모욕'],
-  ['개인정보유출', '신상털기', '신상유출', '정보유출', '개인정보 침해'],
-
-  // 금융 / 사기 / 빚
-  ['사기', '피싱', '보이스피싱', '금융사기', '다단계', '스캠'],
-  ['빚', '대출', '부채', '채무', '채권'],
-  ['도박', '불법도박', '온라인도박', '도박중독', '베팅', '불법베팅'],
-
-  // 친권 / 양육
-  ['양육권', '친권', '면접교섭권', '자녀양육'],
-  ['양육비', '아동양육비', '미지급양육비'],
-  ['이혼', '별거', '협의이혼', '재판이혼', '파경'],
-
-  // 출산 / 육아
-  ['출산', '임신', '출산휴가', '산전후휴가'],
-  ['육아', '양육', '아이 돌봄', '보육', '육아휴직'],
-];
-
-export function expandQuery(query: string): string[] {
+// Pure expansion: the query plus every term of each group the query touches
+// (dedup, query always first). Exported for unit testing without a DB.
+export function expandWithGroups(query: string, groups: string[][]): string[] {
   const terms = new Set<string>([query]);
-  for (const group of SYNONYM_GROUPS) {
+  for (const group of groups) {
     if (group.some((term) => query.includes(term))) {
       group.forEach((term) => terms.add(term));
     }
   }
   return [...terms];
+}
+
+const TTL_MS = 5 * 60 * 1000;
+let cache: { groups: string[][]; loadedAt: number } | null = null;
+
+async function loadSynonymGroups(): Promise<string[][]> {
+  const now = Date.now();
+  if (cache && now - cache.loadedAt < TTL_MS) return cache.groups;
+
+  const rows = await prisma.searchSynonym.findMany({
+    select: { groupId: true, term: true },
+    orderBy: { groupId: 'asc' },
+  });
+  const byGroup = new Map<number, string[]>();
+  for (const { groupId, term } of rows) {
+    const group = byGroup.get(groupId);
+    if (group) group.push(term);
+    else byGroup.set(groupId, [term]);
+  }
+  const groups = [...byGroup.values()];
+  cache = { groups, loadedAt: now };
+  return groups;
+}
+
+// Expand a search query using the synonym groups. Falls back to just the query
+// itself when the table is empty (e.g. not yet seeded), so search never breaks.
+export async function expandQuery(query: string): Promise<string[]> {
+  const groups = await loadSynonymGroups();
+  return expandWithGroups(query, groups);
+}
+
+// Drop the in-process cache (tests, or after editing synonyms in the DB).
+export function clearSynonymCache(): void {
+  cache = null;
 }

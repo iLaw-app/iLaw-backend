@@ -35,7 +35,7 @@ export async function createPost(req: AuthRequest, res: Response) {
   if (!title?.trim()) { res.status(400).json({ message: '제목을 입력해주세요.' }); return; }
 
   const post = await communityService.createPost(req.userId!, { title, content, poll, imageUrls });
-  if ('error' in post) { sendServiceError(res, post.error); return; }
+  if (post.error) { sendServiceError(res, post.error); return; }
   res.status(201).json(post.data);
 }
 
@@ -127,4 +127,24 @@ export async function toggleCommentLike(req: AuthRequest, res: Response) {
   const result = await communityService.toggleCommentLike(commentId, req.userId!);
   if (result.error) { sendServiceError(res, result.error, COMMENT_NOT_FOUND); return; }
   res.json(result.data);
+}
+
+export async function reportPost(req: AuthRequest, res: Response) {
+  const postId = requireId(res, req.params.id);
+  if (postId === null) return;
+
+  const { reason } = req.body as { reason?: string };
+  const result = await communityService.reportPost(postId, req.userId!, reason);
+  if (result.error) { sendServiceError(res, result.error); return; }
+  res.status(201).json(result.data);
+}
+
+export async function reportComment(req: AuthRequest, res: Response) {
+  const commentId = requireId(res, req.params.commentId);
+  if (commentId === null) return;
+
+  const { reason } = req.body as { reason?: string };
+  const result = await communityService.reportComment(commentId, req.userId!, reason);
+  if (result.error) { sendServiceError(res, result.error, COMMENT_NOT_FOUND); return; }
+  res.status(201).json(result.data);
 }

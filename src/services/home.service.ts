@@ -24,6 +24,7 @@ export async function getPopularContent(limit = 5) {
       take: limit,
     }),
     prisma.communityPost.findMany({
+      where: { status: 'visible' },
       select: {
         id: true,
         title: true,

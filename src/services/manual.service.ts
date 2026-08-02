@@ -25,7 +25,7 @@ export async function getArticleById(id: number) {
 }
 
 export async function searchManualArticles(query: string, categorySlug?: string, debug = false) {
-  const terms = expandQuery(query);
+  const terms = await expandQuery(query);
 
   const articles = await prisma.manualArticle.findMany({
     where: {
@@ -37,14 +37,14 @@ export async function searchManualArticles(query: string, categorySlug?: string,
       ]),
     },
     include: { category: { select: { name: true, slug: true } } },
-    take: 30,
+    take: 100,
   });
 
   const ranked = scoreAndRank(
     articles,
     terms,
     (a) => [[a.question, 2], [a.summary ?? '', 2], [a.content, 1.5]],
-    3,
+    { phrase: query },
   );
   const results = ranked.map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 

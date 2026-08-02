@@ -11,6 +11,12 @@ export async function createNotificationsForLawyers(type: string, title: string,
   });
 }
 
+export async function createNotification(userId: string, type: string, title: string, body: string, refId?: number) {
+  await prisma.notification.create({
+    data: { userId, type, title, body, refId },
+  });
+}
+
 export async function getUserNotifications(userId: string) {
   return prisma.notification.findMany({
     where: { userId },

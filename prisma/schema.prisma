@@ -1,10 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // pg_trgm accelerates the LIKE '%term%' keyword search (manual / qa / community).
+  extensions = [pg_trgm]
 }
 
 model User {
@@ -41,6 +44,8 @@ model User {
   communityPollVotes CommunityPollVote[]
   communityComments CommunityComment[]
   communityCommentLikes CommunityCommentLike[]
+  communityPostReports    CommunityPostReport[]
+  communityCommentReports CommunityCommentReport[]
   aiChatHistories              AiChatHistory[]
   aiDailyUsages                AiDailyUsage[]
   oauthLoginCodes              OAuthLoginCode[]
@@ -90,6 +95,10 @@ model ManualArticle {
   content    String
   order      Int            @default(0)
   scraps     ArticleScrap[]
+
+  @@index([question(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model Agency {
@@ -120,6 +129,8 @@ model QnAPost {
   scraps    QnAScrap[]
 
   @@index([authorId])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model QnAAnswer {
@@ -133,6 +144,7 @@ model QnAAnswer {
   updatedAt DateTime @updatedAt
 
   @@index([lawyerId])
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model QnAScrap {
@@ -168,6 +180,7 @@ model CommunityPost {
   content   String?
   poll      Json?
   imageUrls String[]
+  status    String   @default("visible") // visible | hidden | deleted
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -175,8 +188,36 @@ model CommunityPost {
   bookmarks CommunityBookmark[]
   pollVotes CommunityPollVote[]
   comments CommunityComment[]
+  reports  CommunityPostReport[]
 
   @@index([authorId])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+// Keyword synonym groups for search query expansion. Data-driven so groups can be
+// edited without a deploy; loaded and cached in-process by the search layer.
+model SearchSynonym {
+  id      Int    @id @default(autoincrement())
+  groupId Int
+  term    String
+
+  @@unique([groupId, term])
+  @@index([groupId])
+}
+
+model CommunityPostReport {
+  id         Int           @id @default(autoincrement())
+  postId     Int
+  reporterId String
+  reason     String?
+  post       CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporter   User          @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+
+  @@unique([postId, reporterId])
+  @@index([postId])
+  @@index([reporterId])
 }
 
 model CommunityLike {
@@ -225,10 +266,26 @@ model CommunityComment {
   parent    CommunityComment?  @relation("CommunityCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
   replies   CommunityComment[] @relation("CommunityCommentReplies")
   likes     CommunityCommentLike[]
+  reports   CommunityCommentReport[]
   content   String
+  status    String   @default("visible") // visible | hidden | deleted
   createdAt DateTime      @default(now())
 
   @@index([postId, parentId])
+}
+
+model CommunityCommentReport {
+  id         Int              @id @default(autoincrement())
+  commentId  Int
+  reporterId String
+  reason     String?
+  comment    CommunityComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reporter   User             @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
+
+  @@unique([commentId, reporterId])
+  @@index([commentId])
+  @@index([reporterId])
 }
 
 model CommunityCommentLike {

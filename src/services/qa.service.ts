@@ -162,7 +162,7 @@ export async function createQAPost(authorId: string, title: string, content: str
 }
 
 export async function searchQAPosts(query: string, debug = false) {
-  const terms = expandQuery(query);
+  const terms = await expandQuery(query);
 
   const posts = await prisma.qnAPost.findMany({
     where: {
@@ -186,14 +186,14 @@ export async function searchQAPosts(query: string, debug = false) {
       author: { select: { nickname: true } },
       answer: { select: { content: true } },
     },
-    take: 30,
+    take: 100,
   });
 
   const ranked = scoreAndRank(
     posts,
     terms,
     (p) => [[p.title, 2], [p.content, 1.5], [p.answer?.content ?? '', 1]],
-    3,
+    { phrase: query },
   );
   const results = ranked.map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 

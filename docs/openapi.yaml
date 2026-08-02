@@ -1,0 +1,1431 @@
+openapi: 3.0.3
+info:
+  title: iLaw API
+  version: 1.0.0
+  description: >
+    iLaw 백엔드 API 계약서. 소셜 로그인(Kakao/Google), 법률 매뉴얼·기관 연락망,
+    Q&A(변호사 답변), 익명 커뮤니티, AI 상담, 알림, 이미지 업로드를 제공한다.
+
+
+    인증은 JWT Bearer 토큰(`Authorization: Bearer <accessToken>`)을 사용한다.
+    Access 토큰 수명 1시간, Refresh 토큰 30일. 이 문서는 코드 동작을 기준으로 손으로 관리한다.
+servers:
+  - url: https://ilaw-backend.up.railway.app
+    description: Production
+  - url: http://localhost:3000
+    description: Local
+
+tags:
+  - name: Auth
+    description: 로그인, 토큰, 프로필
+  - name: Manual
+    description: 법률 매뉴얼 · 카테고리 · 기관 연락망
+  - name: QnA
+    description: 질문/답변 (변호사 답변)
+  - name: Community
+    description: 익명 커뮤니티 (게시글 · 투표 · 댓글)
+  - name: AI
+    description: AI 법률 상담
+  - name: Notifications
+    description: 알림
+  - name: Home
+    description: 홈 (인기 콘텐츠)
+  - name: Upload
+    description: 이미지 업로드
+  - name: System
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: 헬스 체크
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  # ─────────────────────────── AUTH ───────────────────────────
+  /auth/kakao:
+    get:
+      tags: [Auth]
+      summary: 카카오 로그인 시작 (브라우저)
+      description: >
+        카카오 OAuth 동의 페이지로 302 리다이렉트한다. httpOnly 쿠키 `ilaw_oauth_tx`(5분)와
+        서명된 state를 설정한다. `redirectUri` 쿼리를 보내면 거부된다.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthTarget'
+      responses:
+        '302': { description: 카카오 로그인 페이지로 리다이렉트 }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/kakao/callback:
+    get:
+      tags: [Auth]
+      summary: 카카오 로그인 콜백 (브라우저)
+      description: >
+        검증 성공 시 프론트 리다이렉트 URI로 303 리다이렉트하며 `?code=<일회용 로그인 코드>`(60초)를 붙인다.
+        토큰은 URL에 실지 않는다. 실패 시 `?error=login_failed`.
+      security: []
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string }, description: 카카오가 전달하는 authorization code }
+      responses:
+        '303':
+          description: '프론트로 리다이렉트 (?code=... 또는 ?error=login_failed)'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/google:
+    get:
+      tags: [Auth]
+      summary: 구글 로그인 시작 (브라우저)
+      description: 구글 OAuth 동의 페이지(scope profile, email)로 302 리다이렉트. `/auth/kakao`와 동일한 계약.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OAuthTarget'
+      responses:
+        '302': { description: 구글 로그인 페이지로 리다이렉트 }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /auth/google/callback:
+    get:
+      tags: [Auth]
+      summary: 구글 로그인 콜백 (브라우저)
+      security: []
+      parameters:
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code, in: query, required: false, schema: { type: string } }
+      responses:
+        '303':
+          description: '프론트로 리다이렉트 (?code=... 또는 ?error=login_failed)'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/exchange:
+    post:
+      tags: [Auth]
+      summary: 일회용 코드를 JWT로 교환
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, maxLength: 512, description: 콜백에서 받은 일회용 로그인 코드 (60초 유효, 1회용) }
+      responses:
+        '200':
+          description: 로그인 성공 (Cache-Control:no-store)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: 코드가 없거나 만료/이미 사용됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Access Token 재발급 (Refresh 토큰 회전)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: 재발급 성공 (profileCompleted 미포함)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: 유효하지 않은 refresh 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/kakao/token:
+    post:
+      tags: [Auth]
+      summary: 카카오 SDK 로그인 (네이티브)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accessToken]
+              properties:
+                accessToken: { type: string, description: 카카오 SDK access token }
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: 유효하지 않은 카카오 토큰
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /auth/google/token:
+    post:
+      tags: [Auth]
+      summary: 구글 SDK 로그인 (네이티브)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idToken]
+              properties:
+                idToken: { type: string, description: Google Sign-In ID token }
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: 유효하지 않은 구글 id token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 로그아웃 (refresh 토큰 무효화)
+      responses:
+        '200':
+          description: 로그아웃 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: 내 정보 조회
+      responses:
+        '200':
+          description: 유저 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Auth]
+      summary: 프로필 수정
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProfileRequest' }
+      responses:
+        '200':
+          description: 수정된 프로필
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  nickname: { type: string }
+                  region: { type: string, nullable: true }
+                  birthDate: { type: string, format: date-time, nullable: true }
+                  gender: { type: string, nullable: true }
+                  affiliation: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Auth]
+      summary: 회원 탈퇴
+      responses:
+        '200':
+          description: 탈퇴 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/profile:
+    patch:
+      tags: [Auth]
+      summary: 온보딩 - 추가 정보 입력 및 약관 동의
+      description: 소셜 로그인 후 최초 1회. nickname과 3개 약관 동의는 필수, 나머지는 선택.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteProfileRequest' }
+      responses:
+        '200':
+          description: 프로필 완료 (profileCompleted=true)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string, nullable: true }
+                  nickname: { type: string }
+                  region: { type: string, nullable: true }
+                  birthDate: { type: string, format: date-time, nullable: true }
+                  gender: { type: string, nullable: true }
+                  profileCompleted: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  # ─────────────────────────── MANUAL ───────────────────────────
+  /manual/search:
+    get:
+      tags: [Manual]
+      summary: 매뉴얼 검색
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - { name: categorySlug, in: query, required: false, schema: { type: string } }
+        - $ref: '#/components/parameters/Debug'
+      responses:
+        '200':
+          description: q가 없으면 빈 배열 `[]`, 있으면 `{ results, expandedTerms }`
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items: {}
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: '#/components/schemas/ManualArticleDetail' }
+                      expandedTerms: { type: array, items: { type: string } }
+  /manual/categories:
+    get:
+      tags: [Manual]
+      summary: 카테고리 목록
+      security: []
+      responses:
+        '200':
+          description: 카테고리 목록 (order asc)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ManualCategory' }
+  /manual/categories/{slug}/articles:
+    get:
+      tags: [Manual]
+      summary: 카테고리별 아티클 목록 (본문 제외)
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 아티클 요약 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ManualArticleSummary' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /manual/articles/{id}:
+    get:
+      tags: [Manual]
+      summary: 아티클 상세 (본문 포함)
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdPath'
+      responses:
+        '200':
+          description: 아티클 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManualArticleDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /manual/categories/{slug}/agencies:
+    get:
+      tags: [Manual]
+      summary: 카테고리별 기관 연락망
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+        - { name: region, in: query, required: false, schema: { type: string }, description: 지역 정확 일치 필터 }
+      responses:
+        '200':
+          description: 기관 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Agency' }
+  /manual/my-scraps:
+    get:
+      tags: [Manual]
+      summary: 내가 스크랩한 아티클
+      responses:
+        '200':
+          description: 스크랩 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    question: { type: string }
+                    summary: { type: string, nullable: true }
+                    category: { $ref: '#/components/schemas/CategoryRef' }
+                    scrapCount: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /manual/articles/{id}/scrap:
+    post:
+      tags: [Manual]
+      summary: 아티클 스크랩 토글
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 토글 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { scrapped: { type: boolean } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [Manual]
+      summary: 아티클 스크랩 상태
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 스크랩 여부 + 총 개수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scrapped: { type: boolean }
+                  count: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────────── QNA ───────────────────────────
+  /qna/:
+    get:
+      tags: [QnA]
+      summary: 질문 목록
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: 질문 목록 (로그인 시 scrapped 포함)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/QnAListItem' }
+    post:
+      tags: [QnA]
+      summary: 질문 등록
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content, category]
+              properties:
+                title: { type: string }
+                content: { type: string }
+                category: { type: string }
+                imageUrls: { type: array, items: { type: string } }
+      responses:
+        '201':
+          description: 생성된 질문
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QnAPost' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /qna/search:
+    get:
+      tags: [QnA]
+      summary: 질문 검색
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Debug'
+      responses:
+        '200':
+          description: q가 없으면 `[]`, 있으면 `{ results, expandedTerms }`
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items: {}
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items: { $ref: '#/components/schemas/QnAListItem' }
+                      expandedTerms: { type: array, items: { type: string } }
+  /qna/mine:
+    get:
+      tags: [QnA]
+      summary: 내가 쓴 질문
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/QnAListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /qna/my-answers:
+    get:
+      tags: [QnA]
+      summary: 내가 답변한 질문 (변호사)
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    title: { type: string }
+                    content: { type: string }
+                    category: { type: string }
+                    createdAt: { type: string, format: date-time }
+                    answeredAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /qna/my-scraps:
+    get:
+      tags: [QnA]
+      summary: 내가 스크랩한 질문
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/QnAListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /qna/{id}:
+    get:
+      tags: [QnA]
+      summary: 질문 상세
+      security:
+        - bearerAuth: []
+        - {}
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 질문 상세 (작성자 익명, 변호사 열람 시 나이/지역/성별 노출)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QnAPostDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [QnA]
+      summary: 질문 삭제 (작성자)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '204': { description: 삭제됨 (답변도 cascade 삭제) }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /qna/{id}/scrap:
+    get:
+      tags: [QnA]
+      summary: 질문 스크랩 상태
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 스크랩 여부 + 개수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { scrapped: { type: boolean }, count: { type: integer } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [QnA]
+      summary: 질문 스크랩 토글
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 토글 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { scrapped: { type: boolean } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /qna/{id}/answer:
+    post:
+      tags: [QnA]
+      summary: 답변 등록 (변호사)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties: { content: { type: string } }
+      responses:
+        '201':
+          description: 생성된 답변
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QnAAnswer' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: 변호사 권한 필요
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 이미 답변됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    patch:
+      tags: [QnA]
+      summary: 답변 수정 (작성 변호사)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties: { content: { type: string } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { success: { type: boolean, example: true } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ─────────────────────────── COMMUNITY ───────────────────────────
+  /community/:
+    get:
+      tags: [Community]
+      summary: 게시글 목록 (페이지네이션)
+      security: []
+      parameters:
+        - { name: page, in: query, required: false, schema: { type: integer, default: 1, minimum: 1 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, default: 20, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: 게시글 페이지
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items: { $ref: '#/components/schemas/CommunityPostListItem' }
+                  total: { type: integer }
+                  page: { type: integer }
+                  limit: { type: integer }
+    post:
+      tags: [Community]
+      summary: 게시글 작성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                content: { type: string }
+                poll: { $ref: '#/components/schemas/PollInput' }
+                imageUrls: { type: array, items: { type: string } }
+      responses:
+        '201':
+          description: 생성됨
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  title: { type: string }
+                  createdAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /community/search:
+    get:
+      tags: [Community]
+      summary: 게시글 검색
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SearchQuery'
+        - $ref: '#/components/parameters/Debug'
+      responses:
+        '200':
+          description: q가 없으면 `[]`, 있으면 `{ results, expandedTerms }`
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: array
+                    items: {}
+                  - type: object
+                    properties:
+                      results:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id: { type: integer }
+                            title: { type: string }
+                            content: { type: string, nullable: true }
+                            createdAt: { type: string, format: date-time }
+                            nickname: { type: string, example: 익명 }
+                            likes: { type: integer }
+                            bookmarks: { type: integer }
+                            comments: { type: integer }
+                      expandedTerms: { type: array, items: { type: string } }
+  /community/my-bookmarks:
+    get:
+      tags: [Community]
+      summary: 내가 북마크한 게시글
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CommunityPostListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /community/{id}:
+    get:
+      tags: [Community]
+      summary: 게시글 상세 (댓글 트리 포함)
+      security:
+        - bearerAuth: []
+        - {}
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommunityPostDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Community]
+      summary: 게시글 수정 (작성자)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content: { type: string }
+                poll: { $ref: '#/components/schemas/PollInput' }
+                imageUrls: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: 수정됨 (poll은 저장된 원본 JSON)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  title: { type: string }
+                  content: { type: string, nullable: true }
+                  imageUrls: { type: array, items: { type: string } }
+                  poll: { $ref: '#/components/schemas/PollInput' }
+                  updatedAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 투표 시작 후 선택지 변경 불가 (poll_locked)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      tags: [Community]
+      summary: 게시글 삭제 (작성자)
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '204': { description: 삭제됨 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/like:
+    post:
+      tags: [Community]
+      summary: 좋아요 토글
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 토글 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { liked: { type: boolean }, count: { type: integer } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/bookmark:
+    post:
+      tags: [Community]
+      summary: 북마크 토글
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 토글 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { bookmarked: { type: boolean }, count: { type: integer } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/vote:
+    post:
+      tags: [Community]
+      summary: 투표
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [optionIndex]
+              properties: { optionIndex: { type: integer, minimum: 0 } }
+      responses:
+        '200':
+          description: 갱신된 투표 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { poll: { $ref: '#/components/schemas/PollState' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/comments:
+    get:
+      tags: [Community]
+      summary: 댓글 목록 (트리)
+      security:
+        - bearerAuth: []
+        - {}
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      responses:
+        '200':
+          description: 댓글 트리 (게시글 없으면 `[]`)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CommentNode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Community]
+      summary: 댓글 작성
+      parameters: [ { $ref: '#/components/parameters/IdPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string }
+                parentId: { type: integer, description: 대댓글 대상 (1단계만 허용) }
+      responses:
+        '201':
+          description: 생성된 댓글
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommentNode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/comments/{commentId}/like:
+    post:
+      tags: [Community]
+      summary: 댓글 좋아요 토글
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { name: commentId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: 토글 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { liked: { type: boolean }, count: { type: integer } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /community/{id}/comments/{commentId}:
+    delete:
+      tags: [Community]
+      summary: 댓글 삭제 (작성자)
+      parameters:
+        - { $ref: '#/components/parameters/IdPath' }
+        - { name: commentId, in: path, required: true, schema: { type: integer } }
+      responses:
+        '204': { description: 삭제됨 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ─────────────────────────── AI ───────────────────────────
+  /ai/chat:
+    post:
+      tags: [AI]
+      summary: AI 법률 상담
+      description: 버스트/일일 사용량 제한이 있으며 초과 시 429와 Retry-After 헤더를 반환한다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 2000 }
+      responses:
+        '200':
+          description: 상담 결과 (Cache-Control:no-store)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiChatResult' }
+        '400':
+          description: message 누락 또는 2000자 초과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429':
+          description: 버스트/일일 사용량 초과
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: 재시도까지 대기 초
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiError' }
+  /ai/history:
+    get:
+      tags: [AI]
+      summary: 내 AI 상담 이력
+      responses:
+        '200':
+          description: 이력 (오래된 순)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    question: { type: string }
+                    situationSummary: { type: string }
+                    legalAdvice: { type: string }
+                    suggestions: { type: array, items: { $ref: '#/components/schemas/AiSuggestion' } }
+                    createdAt: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────────── NOTIFICATIONS ───────────────────────────
+  /notifications/:
+    get:
+      tags: [Notifications]
+      summary: 알림 목록 (최근 50, 최신순)
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /notifications/unread-count:
+    get:
+      tags: [Notifications]
+      summary: 안 읽은 알림 수
+      responses:
+        '200':
+          description: 개수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { count: { type: integer } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: 모든 알림 읽음 처리
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ok: { type: boolean, example: true } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ─────────────────────────── HOME ───────────────────────────
+  /home/popular:
+    get:
+      tags: [Home]
+      summary: 인기 콘텐츠 (최대 5)
+      security: []
+      responses:
+        '200':
+          description: 스크랩/북마크 상위 콘텐츠
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [manual, qna, community] }
+                    id: { type: integer }
+                    label: { type: string }
+                    category: { type: string }
+                    scrapCount: { type: integer }
+
+  # ─────────────────────────── UPLOAD ───────────────────────────
+  /upload/image:
+    post:
+      tags: [Upload]
+      summary: 이미지 업로드 (S3)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary, description: 이미지 파일 (image/*, 최대 5MB) }
+      responses:
+        '201':
+          description: 업로드 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { url: { type: string, format: uri } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      schema: { type: string }
+      description: 검색어. 없거나 공백이면 빈 배열 반환.
+    Debug:
+      name: debug
+      in: query
+      required: false
+      schema: { type: string, enum: ['true'] }
+      description: '"true"면 결과에 score 필드 포함'
+    OAuthTarget:
+      name: target
+      in: query
+      required: true
+      schema: { type: string, enum: [web, local] }
+      description: 리다이렉트 대상. local은 비프로덕션에서만 허용.
+
+  responses:
+    BadRequest:
+      description: 잘못된 요청
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: 인증 실패
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: 권한 없음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 대상을 찾을 수 없음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: 충돌 (중복 등)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+    AiError:
+      type: object
+      properties:
+        error: { type: string }
+    Message:
+      type: object
+      properties:
+        message: { type: string }
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken: { type: string, description: iLaw JWT access token (1h) }
+        refreshToken: { type: string, description: iLaw JWT refresh token (30d) }
+        profileCompleted: { type: boolean, description: false이면 PATCH /auth/profile 온보딩 필요 }
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, nullable: true }
+        nickname: { type: string, nullable: true }
+        region: { type: string, nullable: true }
+        birthDate: { type: string, format: date-time, nullable: true }
+        gender: { type: string, enum: [male, female, other], nullable: true }
+        provider: { type: string, enum: [kakao, google] }
+        profileCompleted: { type: boolean }
+        role: { type: string, example: user }
+        affiliation: { type: string, nullable: true }
+        agreedMarketing: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    CompleteProfileRequest:
+      type: object
+      required: [nickname, agreedTermsOfService, agreedPrivacyPolicy, agreedAge14]
+      properties:
+        nickname: { type: string, pattern: '^[a-zA-Z0-9_]+$' }
+        region: { type: string }
+        birthDate: { type: string, example: '1995-08-15' }
+        gender: { type: string, enum: [male, female, other] }
+        agreedTermsOfService: { type: boolean }
+        agreedPrivacyPolicy: { type: boolean }
+        agreedAge14: { type: boolean }
+        agreedMarketing: { type: boolean }
+
+    UpdateProfileRequest:
+      type: object
+      required: [nickname, region, birthDate, gender]
+      properties:
+        nickname: { type: string, pattern: '^[a-zA-Z0-9_]+$' }
+        region: { type: string }
+        birthDate: { type: string, example: '1995-08-15' }
+        gender: { type: string, enum: [male, female, other] }
+        affiliation: { type: string }
+
+    ManualCategory:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: 아동학대 }
+        slug: { type: string, example: child-abuse }
+        order: { type: integer }
+    CategoryRef:
+      type: object
+      properties:
+        name: { type: string }
+        slug: { type: string }
+    ManualArticleSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        question: { type: string }
+        summary: { type: string, nullable: true }
+        order: { type: integer }
+    ManualArticleDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        question: { type: string }
+        summary: { type: string, nullable: true }
+        content: { type: string, description: 마크다운 본문 }
+        order: { type: integer }
+        categoryId: { type: integer }
+        category: { $ref: '#/components/schemas/CategoryRef' }
+    Agency:
+      type: object
+      properties:
+        id: { type: integer }
+        region: { type: string, example: 서울 }
+        name: { type: string, example: 금융감독원 }
+        role: { type: string }
+        contact: { type: string, example: '1332' }
+
+    QnAListItem:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        content: { type: string }
+        category: { type: string }
+        status: { type: string, enum: [pending, answered] }
+        createdAt: { type: string, format: date-time }
+        author:
+          type: object
+          properties: { nickname: { type: string, example: 익명 } }
+        scrapCount: { type: integer }
+        scrapped: { type: boolean, description: 로그인 시에만 포함 }
+    QnAPost:
+      type: object
+      properties:
+        id: { type: integer }
+        authorId: { type: string, nullable: true }
+        title: { type: string }
+        content: { type: string }
+        category: { type: string }
+        status: { type: string }
+        imageUrls: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    QnAAnswer:
+      type: object
+      properties:
+        id: { type: integer }
+        postId: { type: integer }
+        lawyerId: { type: string, nullable: true }
+        content: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    QnAPostDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        content: { type: string }
+        category: { type: string }
+        status: { type: string }
+        imageUrls: { type: array, items: { type: string } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        isAuthor: { type: boolean }
+        author:
+          type: object
+          description: nickname은 항상 '익명'. 열람자가 변호사면 age/region/gender 추가.
+          properties:
+            nickname: { type: string, example: 익명 }
+            age: { type: integer, nullable: true }
+            region: { type: string, nullable: true }
+            gender: { type: string, nullable: true }
+        answer:
+          nullable: true
+          allOf:
+            - type: object
+              properties:
+                id: { type: integer }
+                content: { type: string }
+                createdAt: { type: string, format: date-time }
+                updatedAt: { type: string, format: date-time }
+                isMyAnswer: { type: boolean }
+                lawyer:
+                  nullable: true
+                  type: object
+                  properties:
+                    nickname: { type: string, nullable: true }
+                    role: { type: string }
+                    affiliation: { type: string, nullable: true }
+
+    PollInput:
+      type: object
+      description: 투표 정의 (선택지 2개 이상, label 필수)
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties: { label: { type: string } }
+    PollState:
+      type: object
+      description: 포맷된 투표 상태
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              votes: { type: integer }
+        total: { type: integer }
+        votedOptionIndex: { type: integer, nullable: true }
+    CommunityPostListItem:
+      type: object
+      properties:
+        id: { type: integer }
+        nickname: { type: string, example: 익명 }
+        title: { type: string }
+        content: { type: string, nullable: true }
+        imageUrls: { type: array, items: { type: string } }
+        likes: { type: integer }
+        bookmarks: { type: integer }
+        comments: { type: integer }
+        poll: { allOf: [ { $ref: '#/components/schemas/PollState' } ], nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CommunityPostDetail:
+      type: object
+      properties:
+        id: { type: integer }
+        nickname: { type: string, example: 익명 }
+        isAuthor: { type: boolean }
+        title: { type: string }
+        content: { type: string, nullable: true }
+        imageUrls: { type: array, items: { type: string } }
+        likes: { type: integer }
+        liked: { type: boolean }
+        bookmarks: { type: integer }
+        bookmarked: { type: boolean }
+        poll: { allOf: [ { $ref: '#/components/schemas/PollState' } ], nullable: true }
+        comments:
+          type: array
+          items: { $ref: '#/components/schemas/CommentNode' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CommentNode:
+      type: object
+      properties:
+        id: { type: integer }
+        nickname: { type: string, description: "'익명(글쓴이)' | '익명N' | '익명'" }
+        content: { type: string }
+        likes: { type: integer }
+        liked: { type: boolean }
+        parentId: { type: integer, nullable: true }
+        isAuthor: { type: boolean }
+        isPostAuthor: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        replies:
+          type: array
+          items: { $ref: '#/components/schemas/CommentNode' }
+
+    AiSuggestion:
+      type: object
+      properties:
+        type: { type: string, enum: [manual, qa] }
+        id: { type: integer }
+        label: { type: string }
+    AiChatResult:
+      type: object
+      properties:
+        status: { type: string, enum: [relevant, unrelated] }
+        situationSummary: { type: string }
+        legalAdvice: { type: string }
+        suggestions:
+          type: array
+          items: { $ref: '#/components/schemas/AiSuggestion' }
+        chatEnded: { type: boolean }
+
+    Notification:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: string }
+        type: { type: string }
+        title: { type: string }
+        body: { type: string }
+        refId: { type: integer, nullable: true }
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }

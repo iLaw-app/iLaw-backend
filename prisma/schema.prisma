@@ -41,7 +41,6 @@ model User {
   communityPollVotes CommunityPollVote[]
   communityComments CommunityComment[]
   communityCommentLikes CommunityCommentLike[]
-  communityCommentAuthorLabels CommunityCommentAuthorLabel[]
   aiChatHistories              AiChatHistory[]
   aiDailyUsages                AiDailyUsage[]
   oauthLoginCodes              OAuthLoginCode[]
@@ -91,7 +90,6 @@ model ManualArticle {
   content    String
   order      Int            @default(0)
   scraps     ArticleScrap[]
-  embedding  Unsupported("vector(1536)")?
 }
 
 model Agency {
@@ -120,18 +118,21 @@ model QnAPost {
   updatedAt DateTime   @updatedAt
   answer    QnAAnswer?
   scraps    QnAScrap[]
-  embedding  Unsupported("vector(1536)")?
+
+  @@index([authorId])
 }
 
 model QnAAnswer {
   id        Int      @id @default(autoincrement())
-  post      QnAPost  @relation(fields: [postId], references: [id])
+  post      QnAPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId    Int      @unique
   lawyer    User?    @relation(fields: [lawyerId], references: [id], onDelete: SetNull)
   lawyerId  String?
   content   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([lawyerId])
 }
 
 model QnAScrap {
@@ -155,6 +156,8 @@ model Notification {
   read      Boolean  @default(false)
   refId     Int?
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model CommunityPost {
@@ -172,7 +175,8 @@ model CommunityPost {
   bookmarks CommunityBookmark[]
   pollVotes CommunityPollVote[]
   comments CommunityComment[]
-  commentAuthorLabels CommunityCommentAuthorLabel[]
+
+  @@index([authorId])
 }
 
 model CommunityLike {
@@ -183,6 +187,7 @@ model CommunityLike {
   createdAt DateTime      @default(now())
 
   @@unique([userId, postId])
+  @@index([postId])
 }
 
 model CommunityBookmark {
@@ -193,6 +198,7 @@ model CommunityBookmark {
   createdAt DateTime      @default(now())
 
   @@unique([userId, postId])
+  @@index([postId])
 }
 
 model CommunityPollVote {
@@ -256,6 +262,8 @@ model AiChatHistory {
   legalAdvice      String
   suggestions      Json
   createdAt        DateTime @default(now())
+
+  @@index([userId])
 }
 
 model AiDailyUsage {
@@ -270,13 +278,3 @@ model AiDailyUsage {
   @@index([date])
 }
 
-model CommunityCommentAuthorLabel {
-  postId    Int
-  userId    String
-  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime      @default(now())
-
-  @@id([postId, userId])
-  @@index([postId])
-}

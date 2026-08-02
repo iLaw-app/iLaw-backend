@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQAPosts, listUserQAPosts, getQAPostDetail, getQAPostAnswerState, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
+import { listQAPosts, listUserQAPosts, getQAPostDetail, getQAPostAnswerState, createQAPost, createQAAnswer, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
@@ -66,7 +66,6 @@ export async function createPost(req: AuthRequest, res: Response) {
   }
   const post = await createQAPost(req.userId!, title, content, category, imageUrls ?? []);
   createNotificationsForLawyers('new_question', '새로운 질문이 등록됐습니다!', title, post.id).catch(() => {});
-  embedQAPost(post.id, `${title} ${content}`).catch(() => {});
   res.status(201).json(post);
 }
 

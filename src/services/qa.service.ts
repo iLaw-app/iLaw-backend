@@ -1,6 +1,4 @@
-import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
-import { getEmbedding } from './embedding.service';
 import { expandQuery } from './synonyms';
 
 export async function listQAPosts(userId?: string) {
@@ -162,14 +160,6 @@ export async function createQAPost(authorId: string, title: string, content: str
   });
 }
 
-export async function embedQAPost(postId: number, text: string) {
-  const embedding = await getEmbedding(text);
-  const vectorStr = `[${embedding.join(',')}]`;
-  await prisma.$executeRaw(
-    Prisma.sql`UPDATE "QnAPost" SET embedding = ${vectorStr}::vector WHERE id = ${postId}`
-  );
-}
-
 export async function searchQAPosts(query: string, debug = false) {
   const terms = expandQuery(query);
 
@@ -268,10 +258,8 @@ export async function listLawyerAnswers(lawyerId: string) {
 export async function deleteQAPost(id: number, userId: string): Promise<boolean> {
   const post = await prisma.qnAPost.findUnique({ where: { id }, select: { authorId: true } });
   if (!post || post.authorId !== userId) return false;
-  await prisma.$transaction([
-    prisma.qnAAnswer.deleteMany({ where: { postId: id } }),
-    prisma.qnAPost.delete({ where: { id } }),
-  ]);
+  // The answer is removed automatically via QnAAnswer.post onDelete: Cascade.
+  await prisma.qnAPost.delete({ where: { id } });
   return true;
 }
 

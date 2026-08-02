@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/app.ts",
+    "dev": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
-    "start": "npx prisma migrate deploy && node dist/app.js",
+    "start": "npx prisma migrate deploy && node dist/server.js",
+    "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "docs:build": "ts-node src/generate-spec.ts",
+    "user:set-role": "ts-node src/cli/set-user-role.ts",
     "seed:local": "ts-node prisma/seed.ts",
     "seed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL ts-node prisma/seed.ts'",
     "embed:local": "ts-node prisma/embed-articles.ts",
@@ -51,12 +53,15 @@
     "@types/node": "^25.6.0",
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
+    "@types/supertest": "^7.2.1",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "dotenv-cli": "^11.0.0",
     "nodemon": "^3.1.14",
     "prisma": "^5.22.0",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }

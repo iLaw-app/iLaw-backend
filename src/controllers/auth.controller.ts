@@ -213,17 +213,3 @@ export async function updateProfile(req: AuthRequest, res: Response) {
     throw e;
   }
 }
-
-export async function devSetRole(req: AuthRequest, res: Response) {
-  const { role } = req.body as { role?: string };
-  if (role !== 'user' && role !== 'lawyer') {
-    res.status(400).json({ message: 'role must be user or lawyer' });
-    return;
-  }
-  const user = await prisma.user.update({
-    where: { id: req.userId },
-    data: { role },
-    select: { id: true, role: true },
-  });
-  res.json(user);
-}

@@ -64,6 +64,9 @@ export async function getQAPost(id: number) {
 }
 
 export async function updateQAAnswer(postId: number, lawyerId: string, content: string): Promise<boolean> {
+  const lawyer = await prisma.user.findUnique({ where: { id: lawyerId }, select: { role: true } });
+  if (lawyer?.role !== 'lawyer') return false;
+
   const answer = await prisma.qnAAnswer.findUnique({ where: { postId }, select: { lawyerId: true } });
   if (!answer || answer.lawyerId !== lawyerId) return false;
   await prisma.qnAAnswer.update({ where: { postId }, data: { content } });
@@ -190,6 +193,9 @@ export async function deleteQAPost(id: number, userId: string): Promise<boolean>
 }
 
 export async function createQAAnswer(postId: number, lawyerId: string, content: string) {
+  const lawyer = await prisma.user.findUnique({ where: { id: lawyerId }, select: { role: true } });
+  if (lawyer?.role !== 'lawyer') return null;
+
   const [answer] = await prisma.$transaction([
     prisma.qnAAnswer.create({ data: { postId, lawyerId, content } }),
     prisma.qnAPost.update({ where: { id: postId }, data: { status: 'answered' } }),

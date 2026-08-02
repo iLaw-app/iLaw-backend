@@ -105,5 +105,6 @@ export async function createAnswer(req: AuthRequest, res: Response) {
   if (!existing) { res.status(404).json({ message: 'Post not found' }); return; }
   if (existing.answer) { res.status(409).json({ message: 'Already answered' }); return; }
   const answer = await createQAAnswer(postId, req.userId!, content);
+  if (!answer) { res.status(403).json({ message: 'Lawyer role is required' }); return; }
   res.status(201).json(answer);
 }

@@ -12,7 +12,6 @@ import notificationsRouter from './routes/notifications';
 import communityRouter from './routes/community';
 import aiRouter from './routes/ai';
 import homeRouter from './routes/home';
-import { loadManualCache } from './services/ai.service';
 import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
@@ -36,12 +35,5 @@ app.get('/health', (_req, res) => {
 });
 
 app.use(errorHandler);
-
-const PORT = process.env.PORT ?? 3000;
-app.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  await loadManualCache();
-  console.log('Manual cache loaded');
-});
 
 export default app;

@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { listQAPosts, listUserQAPosts, getQAPost, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
+import { listQAPosts, listUserQAPosts, getQAPostDetail, getQAPostAnswerState, createQAPost, createQAAnswer, embedQAPost, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
 
@@ -23,14 +23,9 @@ export async function listPosts(req: AuthRequest, res: Response) {
 export async function getPost(req: AuthRequest, res: Response) {
   const id = parseInt(req.params.id as string);
   if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
-  const post = await getQAPost(id);
+  const post = await getQAPostDetail(id, req.userId);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
-  const isAuthor = req.userId ? post.authorId === req.userId : false;
-  const answer = post.answer ? {
-    ...post.answer,
-    isMyAnswer: req.userId ? post.answer.lawyerId === req.userId : false,
-  } : null;
-  res.json({ ...post, author: { ...post.author, nickname: '익명' }, isAuthor, answer });
+  res.json(post);
 }
 
 export async function updateAnswer(req: AuthRequest, res: Response) {
@@ -101,7 +96,7 @@ export async function createAnswer(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }
-  const existing = await getQAPost(postId);
+  const existing = await getQAPostAnswerState(postId);
   if (!existing) { res.status(404).json({ message: 'Post not found' }); return; }
   if (existing.answer) { res.status(409).json({ message: 'Already answered' }); return; }
   const answer = await createQAAnswer(postId, req.userId!, content);

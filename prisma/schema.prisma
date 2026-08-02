@@ -43,6 +43,7 @@ model User {
   communityCommentLikes CommunityCommentLike[]
   communityCommentAuthorLabels CommunityCommentAuthorLabel[]
   aiChatHistories              AiChatHistory[]
+  aiDailyUsages                AiDailyUsage[]
   oauthLoginCodes              OAuthLoginCode[]
 
   @@unique([provider, providerId])
@@ -255,6 +256,18 @@ model AiChatHistory {
   legalAdvice      String
   suggestions      Json
   createdAt        DateTime @default(now())
+}
+
+model AiDailyUsage {
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  date         DateTime @db.Date
+  requestCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@id([userId, date])
+  @@index([date])
 }
 
 model CommunityCommentAuthorLabel {

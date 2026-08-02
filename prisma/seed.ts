@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { printScriptMode, resolveScriptMode } from './script-safety';
 
 const prisma = new PrismaClient();
 
@@ -57,52 +58,62 @@ function parseCsv(filePath: string): Array<{ region: string; name: string; role:
 }
 
 async function main() {
+  const mode = resolveScriptMode(process.argv.slice(2));
+  printScriptMode(mode);
   console.log('Seeding manual categories, articles, and agencies...');
 
   const categoryFolders = fs.readdirSync(MANUAL_DIR)
     .filter(f => fs.statSync(path.join(MANUAL_DIR, f)).isDirectory())
     .map(f => f.normalize('NFC'));
 
-  for (const folderName of categoryFolders) {
+  const unknownFolders = categoryFolders.filter((folderName) => !CATEGORY_CONFIG[folderName]);
+  if (unknownFolders.length > 0) {
+    throw new Error(`Unknown category folders: ${unknownFolders.join(', ')}`);
+  }
+
+  const plans = categoryFolders.map((folderName) => {
     const config = CATEGORY_CONFIG[folderName];
-    if (!config) {
-      console.warn(`Unknown category folder: ${folderName}, skipping`);
-      continue;
-    }
-
-    const category = await prisma.manualCategory.upsert({
-      where: { slug: config.slug },
-      update: { name: folderName, order: config.order },
-      create: { name: folderName, slug: config.slug, order: config.order },
-    });
-
-    console.log(`Category: ${folderName}`);
-
-    // Delete existing articles and agencies for this category before re-seeding
-    await prisma.manualArticle.deleteMany({ where: { categoryId: category.id } });
-    await prisma.agency.deleteMany({ where: { categoryId: category.id } });
-
-    // Seed articles
     const categoryDir = path.join(MANUAL_DIR, folderName);
-    const mdFiles = fs.readdirSync(categoryDir).filter(f => f.endsWith('.md'));
-
-    const articles = mdFiles.map((file, index) => {
-      const { question, summary, content } = parseMarkdown(path.join(categoryDir, file));
-      return { categoryId: category.id, question, summary, content, order: index };
-    });
-
-    await prisma.manualArticle.createMany({ data: articles });
-    console.log(`  → ${articles.length} articles`);
-
-    // Seed agencies
+    const articles = fs.readdirSync(categoryDir)
+      .filter((file) => file.endsWith('.md'))
+      .map((file, index) => ({ ...parseMarkdown(path.join(categoryDir, file)), order: index }));
+    let agencies: Array<{ region: string; name: string; role: string; contact: string }> = [];
     if (config.agencyCsv) {
       const csvPath = path.join(AGENCIES_DIR, config.agencyCsv);
-      if (fs.existsSync(csvPath)) {
-        const agencies = parseCsv(csvPath).map(a => ({ ...a, categoryId: category.id }));
-        await prisma.agency.createMany({ data: agencies });
-        console.log(`  → ${agencies.length} agencies`);
+      if (fs.existsSync(csvPath)) agencies = parseCsv(csvPath);
+    }
+    return { folderName, config, articles, agencies };
+  });
+  const articleCount = plans.reduce((sum, plan) => sum + plan.articles.length, 0);
+  const agencyCount = plans.reduce((sum, plan) => sum + plan.agencies.length, 0);
+  console.log(`Validated ${categoryFolders.length} categories, ${articleCount} articles, ${agencyCount} agencies.`);
+  if (!mode.apply) return;
+
+  await prisma.$transaction(async (transaction) => {
+    for (const plan of plans) {
+      const category = await transaction.manualCategory.upsert({
+        where: { slug: plan.config.slug },
+        update: { name: plan.folderName, order: plan.config.order },
+        create: { name: plan.folderName, slug: plan.config.slug, order: plan.config.order },
+      });
+
+      await transaction.manualArticle.deleteMany({ where: { categoryId: category.id } });
+      await transaction.agency.deleteMany({ where: { categoryId: category.id } });
+      await transaction.manualArticle.createMany({
+        data: plan.articles.map((article) => ({ ...article, categoryId: category.id })),
+      });
+      if (plan.agencies.length > 0) {
+        await transaction.agency.createMany({
+          data: plan.agencies.map((agency) => ({ ...agency, categoryId: category.id })),
+        });
       }
     }
+  }, { timeout: 120_000 });
+
+  for (const plan of plans) {
+    console.log(`Category: ${plan.folderName}`);
+    console.log(`  → ${plan.articles.length} articles`);
+    console.log(`  → ${plan.agencies.length} agencies`);
   }
 
   console.log('Done!');

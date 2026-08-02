@@ -3,6 +3,102 @@ import prisma from '../prisma/client';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const DEFAULT_DAILY_REQUEST_LIMIT = 10;
+const DEFAULT_BURST_REQUEST_LIMIT = 3;
+const DEFAULT_OPENAI_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_COMPLETION_TOKENS = 600;
+const BURST_WINDOW_MS = 60_000;
+
+type BurstWindow = { startedAt: number; count: number };
+const burstWindows = new Map<string, BurstWindow>();
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function utcDayStart(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function secondsUntilNextUtcDay(now: Date): number {
+  const tomorrow = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+  return Math.max(1, Math.ceil((tomorrow.getTime() - now.getTime()) / 1_000));
+}
+
+export function consumeAiBurstSlot(
+  userId: string,
+  nowMs = Date.now(),
+): { allowed: true } | { allowed: false; retryAfterSeconds: number } {
+  const limit = positiveInteger(process.env.AI_BURST_REQUEST_LIMIT, DEFAULT_BURST_REQUEST_LIMIT);
+  const current = burstWindows.get(userId);
+
+  if (!current || nowMs - current.startedAt >= BURST_WINDOW_MS) {
+    burstWindows.set(userId, { startedAt: nowMs, count: 1 });
+    return { allowed: true };
+  }
+
+  if (current.count >= limit) {
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((current.startedAt + BURST_WINDOW_MS - nowMs) / 1_000)),
+    };
+  }
+
+  current.count += 1;
+  return { allowed: true };
+}
+
+export function refundAiBurstSlot(userId: string): void {
+  const current = burstWindows.get(userId);
+  if (!current) return;
+  current.count = Math.max(0, current.count - 1);
+  if (current.count === 0) burstWindows.delete(userId);
+}
+
+export function resetAiBurstLimits(): void {
+  burstWindows.clear();
+}
+
+export async function reserveDailyAiRequest(
+  userId: string,
+  now = new Date(),
+): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
+  const date = utcDayStart(now);
+  const limit = positiveInteger(process.env.AI_DAILY_REQUEST_LIMIT, DEFAULT_DAILY_REQUEST_LIMIT);
+
+  const reservation = await prisma.$transaction(async tx => {
+    await tx.aiDailyUsage.upsert({
+      where: { userId_date: { userId, date } },
+      create: { userId, date, requestCount: 0 },
+      update: {},
+    });
+    return tx.aiDailyUsage.updateMany({
+      where: { userId, date, requestCount: { lt: limit } },
+      data: { requestCount: { increment: 1 } },
+    });
+  });
+
+  return reservation.count === 1
+    ? { allowed: true }
+    : { allowed: false, retryAfterSeconds: secondsUntilNextUtcDay(now) };
+}
+
+export async function refundDailyAiRequest(userId: string, now = new Date()): Promise<void> {
+  await prisma.aiDailyUsage.updateMany({
+    where: { userId, date: utcDayStart(now), requestCount: { gt: 0 } },
+    data: { requestCount: { decrement: 1 } },
+  });
+}
+
+function openAiRequestOptions() {
+  return { timeout: positiveInteger(process.env.AI_OPENAI_TIMEOUT_MS, DEFAULT_OPENAI_TIMEOUT_MS) };
+}
+
+function maxCompletionTokens(): number {
+  return positiveInteger(process.env.AI_MAX_COMPLETION_TOKENS, DEFAULT_MAX_COMPLETION_TOKENS);
+}
+
 // ── 인메모리 캐시 ──────────────────────────────────────────────
 
 type ManualItem = {
@@ -77,6 +173,7 @@ export async function diagnose(
   // ── GPT 1차: 분류 + 카테고리 선택 + 카테고리 내 매뉴얼 최대 3개 선택 ──
   const step1Res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
+    max_completion_tokens: maxCompletionTokens(),
     response_format: { type: 'json_object' },
     messages: [
       {
@@ -105,7 +202,7 @@ ${manualList}`,
       ...historyMessages,
       { role: 'user', content: message },
     ],
-  });
+  }, openAiRequestOptions());
 
   let situationSummary = '';
   let categorySlug = '';
@@ -153,6 +250,7 @@ ${manualList}`,
   if (contentBlocks) {
     const step2Res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
+      max_completion_tokens: maxCompletionTokens(),
       messages: [
         {
           role: 'system',
@@ -173,7 +271,7 @@ ${contentBlocks}`,
         ...historyMessages,
         { role: 'user', content: message },
       ],
-    });
+    }, openAiRequestOptions());
     legalAdvice = step2Res.choices[0].message.content?.trim() ?? '';
   }
 

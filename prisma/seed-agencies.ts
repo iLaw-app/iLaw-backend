@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { printScriptMode, resolveScriptMode } from './script-safety';
 
 const prisma = new PrismaClient();
 
@@ -38,7 +39,8 @@ function parseCsv(filePath: string): Array<{ region: string; name: string; role:
 }
 
 async function main() {
-  const slug = process.argv[2];
+  const args = process.argv.slice(2);
+  const slug = args.find((arg) => !arg.startsWith('--'));
   if (!slug) {
     console.error('슬러그를 인수로 넣어주세요. 예: npx ts-node prisma/seed-agencies.ts school-violence');
     console.error('사용 가능한 슬러그:', Object.keys(CATEGORY_CONFIG).join(', '));
@@ -58,20 +60,25 @@ async function main() {
     process.exit(1);
   }
 
-  // 카테고리 upsert
-  const category = await prisma.manualCategory.upsert({
-    where: { slug: config.slug },
-    update: { name: config.name, order: config.order },
-    create: { name: config.name, slug: config.slug, order: config.order },
-  });
-  console.log(`카테고리: ${config.name} (id=${category.id})`);
+  const agencies = parseCsv(csvPath);
+  const mode = resolveScriptMode(args);
+  printScriptMode(mode);
+  console.log(`Validated ${agencies.length} agencies for ${config.name}.`);
+  if (!mode.apply) return;
 
-  // 기존 agencies 삭제 후 재삽입
-  const deleted = await prisma.agency.deleteMany({ where: { categoryId: category.id } });
-  console.log(`  기존 기관 ${deleted.count}개 삭제`);
-
-  const agencies = parseCsv(csvPath).map(a => ({ ...a, categoryId: category.id }));
-  await prisma.agency.createMany({ data: agencies });
+  const result = await prisma.$transaction(async (transaction) => {
+    const category = await transaction.manualCategory.upsert({
+      where: { slug: config.slug },
+      update: { name: config.name, order: config.order },
+      create: { name: config.name, slug: config.slug, order: config.order },
+    });
+    const deleted = await transaction.agency.deleteMany({ where: { categoryId: category.id } });
+    const agencyRows = agencies.map(a => ({ ...a, categoryId: category.id }));
+    await transaction.agency.createMany({ data: agencyRows });
+    return { category, deleted };
+  }, { timeout: 30_000 });
+  console.log(`카테고리: ${config.name} (id=${result.category.id})`);
+  console.log(`  기존 기관 ${result.deleted.count}개 삭제`);
   console.log(`  기관 ${agencies.length}개 삽입 완료`);
 }
 

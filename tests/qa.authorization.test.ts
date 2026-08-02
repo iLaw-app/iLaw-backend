@@ -81,7 +81,7 @@ beforeEach(() => {
 describe('Q&A 답변 권한', () => {
   it('비로그인 사용자의 답변 작성을 401로 거부한다', async () => {
     const response = await request(app)
-      .post('/qa/1/answer')
+      .post('/qna/1/answer')
       .send({ content: '답변 내용' });
 
     expect(response.status).toBe(401);
@@ -91,7 +91,7 @@ describe('Q&A 답변 권한', () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 'user-1', role: 'user' });
 
     const response = await request(app)
-      .post('/qa/1/answer')
+      .post('/qna/1/answer')
       .set('Authorization', authorization('user-1'))
       .send({ content: '답변 내용' });
 
@@ -104,7 +104,7 @@ describe('Q&A 답변 권한', () => {
     prismaMock.qnAAnswer.findUnique.mockResolvedValue({ lawyerId: 'user-1' });
 
     const response = await request(app)
-      .patch('/qa/1/answer')
+      .patch('/qna/1/answer')
       .set('Authorization', authorization('user-1'))
       .send({ content: '수정한 답변' });
 
@@ -116,7 +116,7 @@ describe('Q&A 답변 권한', () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 'lawyer-1', role: 'lawyer' });
 
     const response = await request(app)
-      .post('/qa/1/answer')
+      .post('/qna/1/answer')
       .set('Authorization', authorization('lawyer-1'))
       .send({ content: '답변 내용' });
 
@@ -128,7 +128,7 @@ describe('Q&A 답변 권한', () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: 'lawyer-1', role: 'lawyer' });
 
     const response = await request(app)
-      .patch('/qa/1/answer')
+      .patch('/qna/1/answer')
       .set('Authorization', authorization('lawyer-1'))
       .send({ content: '수정한 답변' });
 
@@ -138,6 +138,97 @@ describe('Q&A 답변 권한', () => {
       where: { postId: 1 },
       data: { content: '수정한 답변' },
     });
+  });
+});
+
+describe('Q&A 상세 개인정보 보호와 API 경로', () => {
+  const privatePost = {
+    id: 1,
+    authorId: 'question-author',
+    title: '임금 체불 질문',
+    content: '질문 내용',
+    category: 'labor',
+    status: 'answered',
+    imageUrls: [],
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    author: {
+      nickname: '실명 닉네임',
+      birthDate: new Date('1990-01-01T00:00:00.000Z'),
+      region: '서울',
+      gender: 'female',
+    },
+    answer: {
+      id: 10,
+      lawyerId: 'lawyer-1',
+      content: '답변 내용',
+      createdAt: new Date('2026-01-03T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+      lawyer: {
+        nickname: '담당 변호사',
+        role: 'lawyer',
+        affiliation: '아이법률사무소',
+      },
+    },
+  };
+
+  it('비로그인 상세 응답에서 사용자 ID와 개인정보를 제거한다', async () => {
+    prismaMock.qnAPost.findUnique.mockResolvedValue(privatePost);
+
+    const response = await request(app).get('/qna/1');
+
+    expect(response.status).toBe(200);
+    expect(response.body).not.toHaveProperty('authorId');
+    expect(response.body.author).toEqual({ nickname: '익명' });
+    expect(response.body.author).not.toHaveProperty('birthDate');
+    expect(response.body.author).not.toHaveProperty('region');
+    expect(response.body.author).not.toHaveProperty('gender');
+    expect(response.body.answer).not.toHaveProperty('lawyerId');
+    expect(response.body.isAuthor).toBe(false);
+    expect(response.body.answer.isMyAnswer).toBe(false);
+  });
+
+  it('일반 사용자는 작성자여도 개인정보 대신 isAuthor만 받는다', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: 'user' });
+    prismaMock.qnAPost.findUnique.mockResolvedValue(privatePost);
+
+    const response = await request(app)
+      .get('/qna/1')
+      .set('Authorization', authorization('question-author'));
+
+    expect(response.status).toBe(200);
+    expect(response.body.isAuthor).toBe(true);
+    expect(response.body.author).toEqual({ nickname: '익명' });
+    expect(response.body).not.toHaveProperty('authorId');
+    expect(response.body.answer).not.toHaveProperty('lawyerId');
+  });
+
+  it('DB에서 확인된 lawyer에게만 최소화한 질문자 문맥을 제공한다', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ role: 'lawyer' });
+    prismaMock.qnAPost.findUnique.mockResolvedValue(privatePost);
+
+    const response = await request(app)
+      .get('/qna/1')
+      .set('Authorization', authorization('lawyer-1'));
+
+    expect(response.status).toBe(200);
+    expect(response.body.author).toEqual({
+      nickname: '익명',
+      age: expect.any(Number),
+      region: '서울',
+      gender: 'female',
+    });
+    expect(response.body.author).not.toHaveProperty('birthDate');
+    expect(response.body).not.toHaveProperty('authorId');
+    expect(response.body.answer).not.toHaveProperty('lawyerId');
+    expect(response.body.answer.isMyAnswer).toBe(true);
+  });
+
+  it('기존 /qa 경로는 더 이상 제공하지 않는다', async () => {
+    const response = await request(app).get('/qa/1');
+
+    expect(response.status).toBe(404);
+    expect(prismaMock.qnAPost.findUnique).not.toHaveBeenCalled();
   });
 });
 

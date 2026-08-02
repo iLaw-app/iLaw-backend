@@ -32,7 +32,11 @@ export async function createPost(req: AuthRequest, res: Response) {
   if (!title?.trim()) { res.status(400).json({ message: '제목을 입력해주세요.' }); return; }
 
   const post = await communityService.createPost(req.userId!, { title, content, poll, imageUrls });
-  res.status(201).json(post);
+  if ('error' in post) {
+    res.status(400).json({ message: '투표 선택지를 확인해주세요.' });
+    return;
+  }
+  res.status(201).json(post.data);
 }
 
 export async function updatePost(req: AuthRequest, res: Response) {
@@ -41,8 +45,13 @@ export async function updatePost(req: AuthRequest, res: Response) {
 
   const { title, content, poll, imageUrls } = req.body;
   const result = await communityService.updatePost(id, req.userId!, { title, content, poll, imageUrls });
-  if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
-  if (result.error === 'forbidden') { res.status(403).json({ message: '권한이 없습니다.' }); return; }
+  if ('error' in result) {
+    if (result.error === 'not_found') { res.status(404).json({ message: '게시글을 찾을 수 없습니다.' }); return; }
+    if (result.error === 'forbidden') { res.status(403).json({ message: '권한이 없습니다.' }); return; }
+    if (result.error === 'poll_locked') { res.status(409).json({ message: '투표가 시작된 후에는 선택지를 변경할 수 없습니다.' }); return; }
+    res.status(400).json({ message: '투표 선택지를 확인해주세요.' });
+    return;
+  }
   res.json(result.data);
 }
 

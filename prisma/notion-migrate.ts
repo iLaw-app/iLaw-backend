@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as cheerio from 'cheerio';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { PrismaClient } from '@prisma/client';
+import { printScriptMode, resolveScriptMode } from './script-safety';
 
 const prisma = new PrismaClient();
 
@@ -45,7 +46,7 @@ async function uploadToS3(filePath: string, s3Key: string): Promise<string> {
   return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${s3Key}`;
 }
 
-async function parseHtmlFile(htmlFile: string) {
+async function parseHtmlFile(htmlFile: string, uploadImages = true) {
   const html = fs.readFileSync(htmlFile, 'utf-8');
   const $ = cheerio.load(html);
 
@@ -78,7 +79,7 @@ async function parseHtmlFile(htmlFile: string) {
   const folderNameWithoutUuid = htmlFileName.replace(/\s+[0-9a-f]{32}$/i, '');
   const imageFolder = path.join(EXPORT_DIR, folderNameWithoutUuid);
 
-  if (fs.existsSync(imageFolder)) {
+  if (uploadImages && fs.existsSync(imageFolder)) {
     const imageFiles = fs.readdirSync(imageFolder).filter(f => /\.(png|jpe?g|webp|gif)$/i.test(f));
     for (const imageFile of imageFiles) {
       const s3Key = `manual-images/${htmlFileName}/${imageFile}`;
@@ -122,53 +123,72 @@ async function parseHtmlFile(htmlFile: string) {
 }
 
 async function main() {
+  const mode = resolveScriptMode(process.argv.slice(2));
+  printScriptMode(mode);
+
   const htmlFiles = fs.readdirSync(EXPORT_DIR)
     .filter(f => f.endsWith('.html'))
     .map(f => path.join(EXPORT_DIR, f));
 
   console.log(`Found ${htmlFiles.length} HTML files\n`);
 
-  // Upsert categories
-  const categoryMap: Record<string, number> = {};
-  for (const [name, cfg] of Object.entries(CATEGORY_CONFIG)) {
-    const cat = await prisma.manualCategory.upsert({
-      where: { slug: cfg.slug },
-      update: { name, order: cfg.order },
-      create: { name, slug: cfg.slug, order: cfg.order },
-    });
-    categoryMap[name] = cat.id;
-    console.log(`Category: ${name} (id=${cat.id})`);
-  }
-
-  // Delete all existing articles for these categories
-  await prisma.manualArticle.deleteMany({
-    where: { categoryId: { in: Object.values(categoryMap) } },
-  });
-  console.log('\nDeleted existing articles. Processing...\n');
-
-  let ok = 0, fail = 0;
-
+  const invalidFiles: string[] = [];
   for (const htmlFile of htmlFiles) {
     try {
-      const { question, summary, content, order, categoryName } = await parseHtmlFile(htmlFile);
-
-      const categoryId = categoryMap[categoryName];
-      if (!categoryId) {
-        console.warn(`  SKIP  unknown category "${categoryName}" — ${path.basename(htmlFile)}`);
-        fail++;
-        continue;
-      }
-
-      await prisma.manualArticle.create({ data: { question, summary, content, order, categoryId } });
-      console.log(`  OK    [${categoryName}] ${question}`);
-      ok++;
-    } catch (e) {
-      console.error(`  FAIL  ${path.basename(htmlFile)}:`, e);
-      fail++;
+      const parsed = await parseHtmlFile(htmlFile, false);
+      if (!parsed.question || !CATEGORY_CONFIG[parsed.categoryName]) invalidFiles.push(path.basename(htmlFile));
+    } catch {
+      invalidFiles.push(path.basename(htmlFile));
     }
   }
+  if (invalidFiles.length > 0) {
+    throw new Error(`Input validation failed: ${invalidFiles.join(', ')}`);
+  }
+  console.log(`Validated ${htmlFiles.length} input files.`);
+  if (!mode.apply) return;
 
-  console.log(`\nDone: ${ok} succeeded, ${fail} failed`);
+  const parsedArticles: Array<{
+    question: string;
+    summary: string | null;
+    content: string;
+    order: number;
+    categoryName: string;
+  }> = [];
+  for (const htmlFile of htmlFiles) {
+    const parsed = await parseHtmlFile(htmlFile);
+    if (!CATEGORY_CONFIG[parsed.categoryName]) {
+      throw new Error(`Unknown category in ${path.basename(htmlFile)}: ${parsed.categoryName}`);
+    }
+    parsedArticles.push(parsed);
+  }
+
+  const categoryRows = await prisma.$transaction(async (transaction) => {
+    const categoryMap: Record<string, number> = {};
+    const rows: Array<{ id: number; name: string }> = [];
+    for (const [name, cfg] of Object.entries(CATEGORY_CONFIG)) {
+      const category = await transaction.manualCategory.upsert({
+        where: { slug: cfg.slug },
+        update: { name, order: cfg.order },
+        create: { name, slug: cfg.slug, order: cfg.order },
+      });
+      categoryMap[name] = category.id;
+      rows.push({ id: category.id, name });
+    }
+
+    await transaction.manualArticle.deleteMany({
+      where: { categoryId: { in: Object.values(categoryMap) } },
+    });
+    await transaction.manualArticle.createMany({
+      data: parsedArticles.map(({ categoryName, ...article }) => ({
+        ...article,
+        categoryId: categoryMap[categoryName],
+      })),
+    });
+    return rows;
+  }, { timeout: 120_000 });
+
+  for (const category of categoryRows) console.log(`Category: ${category.name} (id=${category.id})`);
+  console.log(`Done: ${parsedArticles.length} succeeded`);
 }
 
 main()

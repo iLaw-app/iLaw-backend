@@ -11,12 +11,12 @@
     "db:generate": "prisma generate",
     "docs:build": "ts-node src/generate-spec.ts",
     "user:set-role": "ts-node src/cli/set-user-role.ts",
-    "seed:local": "ts-node prisma/seed.ts",
-    "seed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL ts-node prisma/seed.ts'",
+    "seed:check": "ts-node prisma/seed.ts",
+    "seed:local": "ts-node prisma/seed.ts --apply --target=local",
     "embed:local": "ts-node prisma/embed-articles.ts",
     "embed:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL OPENAI_API_KEY=$OPENAI_API_KEY ts-node prisma/embed-articles.ts'",
-    "migrate:local": "ts-node prisma/notion-migrate.ts",
-    "migrate:prod": "dotenv -e .env -- sh -c 'DATABASE_URL=$PROD_DATABASE_URL ts-node prisma/notion-migrate.ts'"
+    "content:check": "ts-node prisma/notion-migrate.ts",
+    "migrate:local": "ts-node prisma/notion-migrate.ts --apply --target=local"
   },
   "keywords": [],
   "author": "",

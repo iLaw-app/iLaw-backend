@@ -26,7 +26,7 @@ export async function listQAPosts(userId?: string) {
   }));
 }
 
-function calcKoreanAge(birthDate: Date): number {
+function calcAge(birthDate: Date): number {
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
   const hasBirthdayPassed =
@@ -35,13 +35,61 @@ function calcKoreanAge(birthDate: Date): number {
   return hasBirthdayPassed ? age : age - 1;
 }
 
-export async function getQAPost(id: number) {
+export type QAPostDetailDto = {
+  id: number;
+  title: string;
+  content: string;
+  category: string;
+  status: string;
+  imageUrls: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  author: {
+    nickname: '익명';
+    age?: number | null;
+    region?: string | null;
+    gender?: string | null;
+  };
+  answer: {
+    id: number;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+    lawyer: {
+      nickname: string | null;
+      role: string;
+      affiliation: string | null;
+    } | null;
+    isMyAnswer: boolean;
+  } | null;
+  isAuthor: boolean;
+};
+
+export async function getQAPostDetail(id: number, viewerId?: string): Promise<QAPostDetailDto | null> {
+  const viewer = viewerId
+    ? await prisma.user.findUnique({ where: { id: viewerId }, select: { role: true } })
+    : null;
+
   const post = await prisma.qnAPost.findUnique({
     where: { id },
-    include: {
+    select: {
+      id: true,
+      authorId: true,
+      title: true,
+      content: true,
+      category: true,
+      status: true,
+      imageUrls: true,
+      createdAt: true,
+      updatedAt: true,
       author: { select: { nickname: true, birthDate: true, region: true, gender: true } },
       answer: {
-        include: {
+        select: {
+          id: true,
+          lawyerId: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
           lawyer: { select: { nickname: true, role: true, affiliation: true } },
         },
       },
@@ -50,17 +98,52 @@ export async function getQAPost(id: number) {
 
   if (!post) return null;
 
+  const author = viewer?.role === 'lawyer' && post.author
+    ? {
+        nickname: '익명' as const,
+        age: post.author.birthDate ? calcAge(post.author.birthDate) : null,
+        region: post.author.region,
+        gender: post.author.gender,
+      }
+    : { nickname: '익명' as const };
+
+  const answer = post.answer
+    ? {
+        id: post.answer.id,
+        content: post.answer.content,
+        createdAt: post.answer.createdAt,
+        updatedAt: post.answer.updatedAt,
+        lawyer: post.answer.lawyer
+          ? {
+              nickname: post.answer.lawyer.nickname,
+              role: post.answer.lawyer.role,
+              affiliation: post.answer.lawyer.affiliation,
+            }
+          : null,
+        isMyAnswer: Boolean(viewerId && post.answer.lawyerId === viewerId),
+      }
+    : null;
+
   return {
-    ...post,
-    author: post.author
-      ? {
-          nickname: post.author.nickname,
-          birthDate: post.author.birthDate ? post.author.birthDate.toISOString().slice(0, 10) : null,
-          region: post.author.region,
-          gender: post.author.gender,
-        }
-      : null,
+    id: post.id,
+    title: post.title,
+    content: post.content,
+    category: post.category,
+    status: post.status,
+    imageUrls: post.imageUrls,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+    author,
+    answer,
+    isAuthor: Boolean(viewerId && post.authorId === viewerId),
   };
+}
+
+export async function getQAPostAnswerState(id: number) {
+  return prisma.qnAPost.findUnique({
+    where: { id },
+    select: { answer: { select: { id: true } } },
+  });
 }
 
 export async function updateQAAnswer(postId: number, lawyerId: string, content: string): Promise<boolean> {

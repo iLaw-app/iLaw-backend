@@ -1,10 +1,31 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
 
-type PollOption = { label: string; votes: number };
-type PollData = { options: PollOption[] };
+type PollOptionDefinition = { label: string };
+type PollDefinition = { options: PollOptionDefinition[] };
+type PollVoteCount = { optionIndex: number; _count: { _all: number } };
 
-function normalizePoll(poll: unknown): PollData | null {
+function parsePollInput(
+  poll: unknown,
+): { data: PollDefinition } | { error: 'invalid_poll' } {
+  if (!poll || typeof poll !== 'object' || !('options' in poll)) return { error: 'invalid_poll' };
+  const options = (poll as { options?: unknown }).options;
+  if (!Array.isArray(options)) return { error: 'invalid_poll' };
+
+  const normalized: PollOptionDefinition[] = [];
+  for (const option of options) {
+    if (!option || typeof option !== 'object') return { error: 'invalid_poll' };
+    const label = String((option as { label?: unknown }).label ?? '').trim();
+    if (!label) return { error: 'invalid_poll' };
+    normalized.push({ label });
+  }
+
+  return normalized.length >= 2
+    ? { data: { options: normalized } }
+    : { error: 'invalid_poll' };
+}
+
+function normalizeStoredPoll(poll: unknown): PollDefinition | null {
   if (!poll || typeof poll !== 'object' || !('options' in poll)) return null;
   const options = (poll as { options?: unknown }).options;
   if (!Array.isArray(options)) return null;
@@ -13,23 +34,54 @@ function normalizePoll(poll: unknown): PollData | null {
     .map((option) => {
       if (!option || typeof option !== 'object') return null;
       const label = String((option as { label?: unknown }).label ?? '').trim();
-      if (!label) return null;
-      const votes = Number((option as { votes?: unknown }).votes ?? 0);
-      return { label, votes: Number.isFinite(votes) && votes > 0 ? Math.floor(votes) : 0 };
+      return label ? { label } : null;
     })
-    .filter((option): option is PollOption => !!option);
+    .filter((option): option is PollOptionDefinition => !!option);
 
   return normalized.length >= 2 ? { options: normalized } : null;
 }
 
-function formatPoll(poll: unknown, votedOptionIndex?: number | null) {
-  const normalized = normalizePoll(poll);
+function formatPoll(
+  poll: unknown,
+  voteCounts: PollVoteCount[] = [],
+  votedOptionIndex?: number | null,
+) {
+  const normalized = normalizeStoredPoll(poll);
   if (!normalized) return null;
+  const counts = new Map(voteCounts.map((row) => [row.optionIndex, row._count._all]));
+  const options = normalized.options.map((option, index) => ({
+    ...option,
+    votes: counts.get(index) ?? 0,
+  }));
   return {
-    ...normalized,
-    total: normalized.options.reduce((sum, option) => sum + option.votes, 0),
+    options,
+    total: options.reduce((sum, option) => sum + option.votes, 0),
     votedOptionIndex: votedOptionIndex ?? null,
   };
+}
+
+async function getVoteCounts(postIds: number[]) {
+  if (postIds.length === 0) return new Map<number, PollVoteCount[]>();
+  const rows = await prisma.communityPollVote.groupBy({
+    by: ['postId', 'optionIndex'],
+    where: { postId: { in: postIds } },
+    _count: { _all: true },
+  });
+
+  const byPost = new Map<number, PollVoteCount[]>();
+  for (const row of rows) {
+    const counts = byPost.get(row.postId) ?? [];
+    counts.push({ optionIndex: row.optionIndex, _count: row._count });
+    byPost.set(row.postId, counts);
+  }
+  return byPost;
+}
+
+function samePollOptions(left: unknown, right: PollDefinition) {
+  const normalized = normalizeStoredPoll(left);
+  return !!normalized
+    && normalized.options.length === right.options.length
+    && normalized.options.every((option, index) => option.label === right.options[index].label);
 }
 
 const ANONYMOUS_POST_AUTHOR = '익명';
@@ -55,6 +107,7 @@ export async function listPosts(page: number, limit: number) {
     }),
     prisma.communityPost.count(),
   ]);
+  const voteCounts = await getVoteCounts(posts.map((post) => post.id));
 
   return {
     posts: posts.map((p) => ({
@@ -68,7 +121,7 @@ export async function listPosts(page: number, limit: number) {
       likes: p._count.likes,
       bookmarks: p._count.bookmarks,
       comments: p._count.comments,
-      poll: formatPoll(p.poll),
+      poll: formatPoll(p.poll, voteCounts.get(p.id)),
     })),
     total,
     page,
@@ -94,13 +147,18 @@ export async function getPost(id: number, userId?: string) {
   });
   if (!post) return null;
 
-  const [liked, bookmarked, vote] = userId
-    ? await Promise.all([
-        prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId: id } } }),
-        prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId: id } } }),
-        prisma.communityPollVote.findUnique({ where: { userId_postId: { userId, postId: id } } }),
-      ])
-    : [null, null, null];
+  const [liked, bookmarked, vote, voteCounts] = await Promise.all([
+    userId
+      ? prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId: id } } })
+      : Promise.resolve(null),
+    userId
+      ? prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId: id } } })
+      : Promise.resolve(null),
+    userId
+      ? prisma.communityPollVote.findUnique({ where: { userId_postId: { userId, postId: id } } })
+      : Promise.resolve(null),
+    getVoteCounts([id]),
+  ]);
 
   const labels = buildLabelMapFromComments(post.comments, post.authorId);
 
@@ -117,7 +175,7 @@ export async function getPost(id: number, userId?: string) {
     liked: !!liked,
     bookmarks: post._count.bookmarks,
     bookmarked: !!bookmarked,
-    poll: formatPoll(post.poll, vote?.optionIndex),
+    poll: formatPoll(post.poll, voteCounts.get(id), vote?.optionIndex),
     comments: buildCommentTree(post.comments, labels, post.authorId, userId),
   };
 }
@@ -126,16 +184,24 @@ export async function createPost(
   userId: string,
   data: { title: string; content?: string; poll?: object; imageUrls?: string[] },
 ) {
-  return prisma.communityPost.create({
+  let poll: PollDefinition | undefined;
+  if (data.poll !== undefined) {
+    const parsed = parsePollInput(data.poll);
+    if ('error' in parsed) return parsed;
+    poll = parsed.data;
+  }
+
+  const post = await prisma.communityPost.create({
     data: {
       authorId: userId,
       title: data.title,
       content: data.content,
-      poll: normalizePoll(data.poll) ?? undefined,
+      poll,
       imageUrls: data.imageUrls ?? [],
     },
     select: { id: true, title: true, createdAt: true },
   });
+  return { data: post };
 }
 
 export async function updatePost(
@@ -143,9 +209,26 @@ export async function updatePost(
   userId: string,
   data: { title?: string; content?: string; imageUrls?: string[]; poll?: object },
 ) {
-  const post = await prisma.communityPost.findUnique({ where: { id }, select: { authorId: true } });
+  const post = await prisma.communityPost.findUnique({
+    where: { id },
+    select: { authorId: true, poll: true },
+  });
   if (!post) return { error: 'not_found' as const };
   if (post.authorId !== userId) return { error: 'forbidden' as const };
+
+  let poll: PollDefinition | undefined;
+  if (data.poll !== undefined) {
+    const parsed = parsePollInput(data.poll);
+    if ('error' in parsed) return parsed;
+    poll = parsed.data;
+
+    if (!samePollOptions(post.poll, poll)) {
+      const voteCount = await prisma.communityPollVote.count({ where: { postId: id } });
+      if (voteCount > 0) return { error: 'poll_locked' as const };
+    } else {
+      poll = undefined;
+    }
+  }
 
   const updated = await prisma.communityPost.update({
     where: { id },
@@ -153,7 +236,7 @@ export async function updatePost(
       title: data.title,
       content: data.content,
       ...(data.imageUrls !== undefined && { imageUrls: data.imageUrls }),
-      ...(data.poll !== undefined && { poll: normalizePoll(data.poll) ?? undefined }),
+      ...(poll !== undefined && { poll }),
     },
     select: { id: true, title: true, content: true, imageUrls: true, poll: true, updatedAt: true },
   });
@@ -247,41 +330,20 @@ export async function votePoll(postId: number, userId: string, optionIndex: numb
   });
   if (!post) return { error: 'not_found' as const };
 
-  const poll = normalizePoll(post.poll);
+  const poll = normalizeStoredPoll(post.poll);
   if (!poll) return { error: 'no_poll' as const };
   if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
     return { error: 'invalid_option' as const };
   }
 
-  const existing = await prisma.communityPollVote.findUnique({
+  await prisma.communityPollVote.upsert({
     where: { userId_postId: { userId, postId } },
+    create: { userId, postId, optionIndex },
+    update: { optionIndex },
   });
 
-  if (existing?.optionIndex === optionIndex) {
-    return { data: { poll: formatPoll(poll, optionIndex) } };
-  }
-
-  if (existing) {
-    poll.options[existing.optionIndex].votes = Math.max(0, poll.options[existing.optionIndex].votes - 1);
-  }
-  poll.options[optionIndex].votes += 1;
-
-  await prisma.$transaction([
-    existing
-      ? prisma.communityPollVote.update({
-          where: { userId_postId: { userId, postId } },
-          data: { optionIndex },
-        })
-      : prisma.communityPollVote.create({
-          data: { userId, postId, optionIndex },
-        }),
-    prisma.communityPost.update({
-      where: { id: postId },
-      data: { poll },
-    }),
-  ]);
-
-  return { data: { poll: formatPoll(poll, optionIndex) } };
+  const voteCounts = await getVoteCounts([postId]);
+  return { data: { poll: formatPoll(poll, voteCounts.get(postId), optionIndex) } };
 }
 
 type CommunityCommentRow = {

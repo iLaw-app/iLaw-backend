@@ -5,6 +5,7 @@ import {
   consumeAiBurstSlot,
   diagnose,
   isMultiTurnEnabled,
+  pruneAiChatHistory,
   refundAiBurstSlot,
   refundDailyAiRequest,
   reserveDailyAiRequest,
@@ -12,6 +13,7 @@ import {
 
 const MAX_MESSAGE_LENGTH = 2_000;
 const CONVERSATION_HISTORY_TURNS = 5;
+const MAX_STORED_HISTORY = 5;
 
 export async function chat(req: AuthRequest, res: Response, next: NextFunction) {
   try {
@@ -111,7 +113,8 @@ export async function chat(req: AuthRequest, res: Response, next: NextFunction) 
             suggestions: result.suggestions,
             status: result.status,
           },
-        }).catch(() => {});
+          // 저장 후 사용자당 최신 MAX_STORED_HISTORY개만 유지(초과분 정리).
+        }).then(() => pruneAiChatHistory(userId, MAX_STORED_HISTORY)).catch(() => {});
       }
 
       // 대화 메타 갱신: 마지막 상태, (없으면) 첫 상황 요약을 제목으로.

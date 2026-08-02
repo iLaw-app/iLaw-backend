@@ -126,7 +126,10 @@ describe('diagnose 위기 대응 (AI_CRISIS_ENABLED)', () => {
     const result = await diagnose('아이가 맞고 있어요', '홍길동');
 
     expect(result.status).toBe('relevant');
-    expect(result.suggestions.every((s) => s.type === 'manual')).toBe(true);
+    // 위기 아님 → 핫라인은 없지만, 기관 연락처는 항상 노출된다.
+    expect(result.suggestions.some((s) => s.type === 'hotline')).toBe(false);
+    expect(result.suggestions.some((s) => s.type === 'agency')).toBe(true);
+    expect(result.suggestions.some((s) => s.type === 'manual')).toBe(true);
   });
 
   it('위기인데 생성 본문이 비면 안전 우선 폴백 문구를 반환한다', async () => {

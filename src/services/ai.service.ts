@@ -107,6 +107,20 @@ export async function reserveDailyAiRequest(
     : { allowed: false, retryAfterSeconds: secondsUntilNextUtcDay(now) };
 }
 
+// 사용자당 진단 이력을 최신 keep개까지만 유지한다(초과분 삭제).
+export async function pruneAiChatHistory(userId: string, keep = 5): Promise<void> {
+  const keepRows = await prisma.aiChatHistory.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    take: keep,
+    select: { id: true },
+  });
+  if (keepRows.length < keep) return; // keep개 이하면 지울 것이 없다
+  await prisma.aiChatHistory.deleteMany({
+    where: { userId, id: { notIn: keepRows.map(r => r.id) } },
+  });
+}
+
 export async function refundDailyAiRequest(userId: string, now = new Date()): Promise<void> {
   await prisma.aiDailyUsage.updateMany({
     where: { userId, date: utcDayStart(now), requestCount: { gt: 0 } },
@@ -356,29 +370,32 @@ export async function diagnose(
   // 폴백: 어떤 이유로든 안내가 비면 고정 문구로 대체(빈 문자열 금지).
   if (!legalAdvice) legalAdvice = crisis ? CRISIS_MESSAGE : NO_MATCH_MESSAGE;
 
-  // ── suggestions 조립: (위기 시) 핫라인 → 기관 → 매뉴얼 순으로 상단 배치 ──
+  // ── suggestions 조립 ──
+  // 기관(agency) 연락처는 고위험 여부와 무관하게 항상 노출한다.
+  // 긴급 핫라인(hotline)은 위기 상황에서만 최상단에 붙인다.
   const manualSuggestions: Suggestion[] = selectedCandidates.map(c => ({
     type: 'manual', id: c.id, label: c.question,
   }));
 
-  let suggestions: Suggestion[] = manualSuggestions;
+  const agencyRows = (await Promise.all(selectedSlugs.map(slug => getAgencies(slug)))).flat();
+  // 사용자 지역과 일치하는 기관을 앞으로.
+  if (opts.region) {
+    agencyRows.sort((a, b) =>
+      (b.region === opts.region ? 1 : 0) - (a.region === opts.region ? 1 : 0));
+  }
+  const agencySuggestions: Suggestion[] = agencyRows.slice(0, MAX_AGENCY_SUGGESTIONS).map(a => ({
+    type: 'agency', id: a.id, label: a.name, contact: a.contact,
+    ...(a.region ? { region: a.region } : {}),
+  }));
+
+  let suggestions: Suggestion[];
   if (crisis) {
     const hotlineSuggestions: Suggestion[] = hotlinesFor(selectedSlugs).map(h => ({
       type: 'hotline', label: h.label, phone: h.phone,
     }));
-
-    const agencyRows = (await Promise.all(selectedSlugs.map(slug => getAgencies(slug)))).flat();
-    // 사용자 지역과 일치하는 기관을 앞으로.
-    if (opts.region) {
-      agencyRows.sort((a, b) =>
-        (b.region === opts.region ? 1 : 0) - (a.region === opts.region ? 1 : 0));
-    }
-    const agencySuggestions: Suggestion[] = agencyRows.slice(0, MAX_AGENCY_SUGGESTIONS).map(a => ({
-      type: 'agency', id: a.id, label: a.name, contact: a.contact,
-      ...(a.region ? { region: a.region } : {}),
-    }));
-
     suggestions = [...hotlineSuggestions, ...agencySuggestions, ...manualSuggestions];
+  } else {
+    suggestions = [...manualSuggestions, ...agencySuggestions];
   }
 
   return finish({

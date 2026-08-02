@@ -1,5 +1,6 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
+import { scoreAndRank } from './search.util';
 
 export async function listQAPosts(userId?: string) {
   const posts = await prisma.qnAPost.findMany({
@@ -188,27 +189,13 @@ export async function searchQAPosts(query: string, debug = false) {
     take: 30,
   });
 
-  const scored = posts.map((p) => ({
-    ...p,
-    score: terms.reduce(
-      (acc, term) =>
-        acc +
-        (p.title.includes(term) ? 2 : 0) +
-        (p.content.includes(term) ? 1.5 : 0) +
-        ((p.answer?.content ?? '').includes(term) ? 1 : 0),
-      0,
-    ),
-  }));
-
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  const threshold = sorted.some((p) => p.score >= 10) ? 10
-    : sorted.some((p) => p.score >= 6) ? 6
-    : 3;
-
-  const results = sorted
-    .filter((p) => p.score >= threshold)
-    .slice(0, 10)
-    .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
+  const ranked = scoreAndRank(
+    posts,
+    terms,
+    (p) => [[p.title, 2], [p.content, 1.5], [p.answer?.content ?? '', 1]],
+    3,
+  );
+  const results = ranked.map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 
   return { results, expandedTerms: terms };
 }

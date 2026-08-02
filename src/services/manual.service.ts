@@ -1,5 +1,6 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
+import { scoreAndRank } from './search.util';
 
 export async function getCategories() {
   return prisma.manualCategory.findMany({
@@ -39,27 +40,13 @@ export async function searchManualArticles(query: string, categorySlug?: string,
     take: 30,
   });
 
-  const scored = articles.map((a) => ({
-    ...a,
-    score: terms.reduce(
-      (acc, term) =>
-        acc +
-        (a.question.includes(term) ? 2 : 0) +
-        ((a.summary ?? '').includes(term) ? 2 : 0) +
-        (a.content.includes(term) ? 1.5 : 0),
-      0,
-    ),
-  }));
-
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  const threshold = sorted.some((a) => a.score >= 10) ? 10
-    : sorted.some((a) => a.score >= 6) ? 6
-    : 3;
-
-  const results = sorted
-    .filter((a) => a.score >= threshold)
-    .slice(0, 10)
-    .map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
+  const ranked = scoreAndRank(
+    articles,
+    terms,
+    (a) => [[a.question, 2], [a.summary ?? '', 2], [a.content, 1.5]],
+    3,
+  );
+  const results = ranked.map(({ score, ...rest }) => debug ? { ...rest, score } : rest);
 
   return { results, expandedTerms: terms };
 }

@@ -1,5 +1,6 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
+import { scoreAndRank } from './search.util';
 
 type PollOptionDefinition = { label: string };
 type PollDefinition = { options: PollOptionDefinition[] };
@@ -535,25 +536,14 @@ export async function searchCommunityPosts(query: string, debug = false) {
     take: 30,
   });
 
-  const scored = posts.map((p) => ({
-    ...p,
-    score: terms.reduce(
-      (acc, term) =>
-        acc +
-        (p.title.includes(term) ? 2 : 0) +
-        ((p.content ?? '').includes(term) ? 1.5 : 0),
-      0,
-    ),
-  }));
+  const ranked = scoreAndRank(
+    posts,
+    terms,
+    (p) => [[p.title, 2], [p.content ?? '', 1.5]],
+    1,
+  );
 
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  const threshold = sorted.some((p) => p.score >= 10) ? 10
-    : sorted.some((p) => p.score >= 6) ? 6
-    : 1;
-
-  const results = sorted
-    .filter((p) => p.score >= threshold)
-    .slice(0, 10)
+  const results = ranked
     .map(({ score, _count, ...rest }) =>
       debug
         ? { ...rest, nickname: ANONYMOUS_POST_AUTHOR, likes: _count.likes, bookmarks: _count.bookmarks, comments: _count.comments, score }

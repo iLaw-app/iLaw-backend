@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import { getCategories, getArticlesByCategory, getArticleById, getAgencies, searchManualArticles } from '../services/manual.service';
 import { toggleArticleScrap, getArticleScrapStatus, getUserScraps } from '../services/scrap.service';
 import { AuthRequest } from '../middlewares/authenticate';
+import { requireId } from '../utils/http';
+
+const INVALID_ID = '유효하지 않은 ID입니다.';
 
 export async function listCategories(_req: Request, res: Response) {
   const categories = await getCategories();
@@ -19,11 +22,8 @@ export async function listArticles(req: Request, res: Response) {
 }
 
 export async function getArticle(req: Request, res: Response) {
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
-    res.status(400).json({ message: '유효하지 않은 ID입니다.' });
-    return;
-  }
+  const id = requireId(res, req.params.id, INVALID_ID);
+  if (id === null) return;
   const article = await getArticleById(id);
   if (!article) {
     res.status(404).json({ message: '아티클을 찾을 수 없습니다.' });
@@ -49,15 +49,15 @@ export async function listAgencies(req: Request, res: Response) {
 }
 
 export async function scrapArticle(req: AuthRequest, res: Response) {
-  const id = Number(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ message: '유효하지 않은 ID입니다.' }); return; }
+  const id = requireId(res, req.params.id, INVALID_ID);
+  if (id === null) return;
   const result = await toggleArticleScrap(req.userId!, id);
   res.json(result);
 }
 
 export async function getScrapStatus(req: AuthRequest, res: Response) {
-  const id = Number(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ message: '유효하지 않은 ID입니다.' }); return; }
+  const id = requireId(res, req.params.id, INVALID_ID);
+  if (id === null) return;
   const result = await getArticleScrapStatus(req.userId!, id);
   res.json(result);
 }

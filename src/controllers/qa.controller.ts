@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
+import { parseId, requireId } from '../utils/http';
 import { listQAPosts, listUserQAPosts, getQAPostDetail, getQAPostAnswerState, createQAPost, createQAAnswer, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
@@ -21,17 +22,17 @@ export async function listPosts(req: AuthRequest, res: Response) {
 }
 
 export async function getPost(req: AuthRequest, res: Response) {
-  const id = parseInt(req.params.id as string);
-  if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const id = requireId(res, req.params.id, 'Invalid id');
+  if (id === null) return;
   const post = await getQAPostDetail(id, req.userId);
   if (!post) { res.status(404).json({ message: 'Not found' }); return; }
   res.json(post);
 }
 
 export async function updateAnswer(req: AuthRequest, res: Response) {
-  const postId = parseInt(req.params.id as string);
+  const postId = parseId(req.params.id);
   const { content } = req.body as { content?: string };
-  if (isNaN(postId) || !content?.trim()) {
+  if (postId === null || !content?.trim()) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }
@@ -41,8 +42,8 @@ export async function updateAnswer(req: AuthRequest, res: Response) {
 }
 
 export async function deletePost(req: AuthRequest, res: Response) {
-  const id = parseInt(req.params.id as string);
-  if (isNaN(id)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const id = requireId(res, req.params.id, 'Invalid id');
+  if (id === null) return;
   const deleted = await deleteQAPost(id, req.userId!);
   if (!deleted) { res.status(403).json({ message: 'Forbidden or not found' }); return; }
   res.status(204).send();
@@ -70,15 +71,15 @@ export async function createPost(req: AuthRequest, res: Response) {
 }
 
 export async function scrapPost(req: AuthRequest, res: Response) {
-  const postId = parseInt(req.params.id as string);
-  if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const postId = requireId(res, req.params.id, 'Invalid id');
+  if (postId === null) return;
   const result = await toggleQAScrap(req.userId!, postId);
   res.json(result);
 }
 
 export async function getScrapStatus(req: AuthRequest, res: Response) {
-  const postId = parseInt(req.params.id as string);
-  if (isNaN(postId)) { res.status(400).json({ message: 'Invalid id' }); return; }
+  const postId = requireId(res, req.params.id, 'Invalid id');
+  if (postId === null) return;
   const result = await getQAScrapStatus(req.userId!, postId);
   res.json(result);
 }
@@ -89,9 +90,9 @@ export async function getMyQAScraps(req: AuthRequest, res: Response) {
 }
 
 export async function createAnswer(req: AuthRequest, res: Response) {
-  const postId = parseInt(req.params.id as string);
+  const postId = parseId(req.params.id);
   const { content } = req.body as { content?: string };
-  if (isNaN(postId) || !content?.trim()) {
+  if (postId === null || !content?.trim()) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }

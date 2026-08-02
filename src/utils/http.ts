@@ -1,0 +1,42 @@
+import { Response } from 'express';
+
+// Parse a route param into a positive integer id, or null if invalid.
+export function parseId(raw: unknown): number | null {
+  const id = Number(raw);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+// Parse an id and, if invalid, write a 400 response and return null.
+// Callers: `const id = requireId(res, req.params.id); if (id === null) return;`
+export function requireId(res: Response, raw: unknown, message = '잘못된 ID입니다.'): number | null {
+  const id = parseId(raw);
+  if (id === null) {
+    res.status(400).json({ message });
+    return null;
+  }
+  return id;
+}
+
+type ErrorSpec = { status: number; message: string };
+
+const SERVICE_ERROR_DEFAULTS: Record<string, ErrorSpec> = {
+  not_found: { status: 404, message: '게시글을 찾을 수 없습니다.' },
+  forbidden: { status: 403, message: '권한이 없습니다.' },
+  no_poll: { status: 400, message: '투표가 없는 게시글입니다.' },
+  invalid_option: { status: 400, message: '잘못된 선택지입니다.' },
+  parent_not_found: { status: 404, message: '원댓글을 찾을 수 없습니다.' },
+  nested_reply: { status: 400, message: '답글에는 다시 답글을 달 수 없습니다.' },
+  poll_locked: { status: 409, message: '투표가 시작된 후에는 선택지를 변경할 수 없습니다.' },
+  invalid_poll: { status: 400, message: '투표 선택지를 확인해주세요.' },
+};
+
+// Map a service error code to an HTTP response. `overrides` customises the
+// message/status for a given code (e.g. comment-specific "not_found").
+export function sendServiceError(
+  res: Response,
+  error: string,
+  overrides: Record<string, ErrorSpec> = {},
+): void {
+  const spec = overrides[error] ?? SERVICE_ERROR_DEFAULTS[error] ?? { status: 400, message: '요청을 처리할 수 없습니다.' };
+  res.status(spec.status).json({ message: spec.message });
+}

@@ -336,11 +336,9 @@ export async function diagnose(
   }
 
   // ── relevant 처리 ──
-  // LLM이 하나도 못 골랐지만 후보가 있으면 점수 1위를 폴백 채택("빈 안내" 방지).
-  let selectedIds = router.selectedIds;
-  if (selectedIds.length === 0 && candidates.length > 0) {
-    selectedIds = [candidates[0].id];
-  }
+  // 라우터가 유형·관점이 맞는 매뉴얼이 없다고 판단하면(빈 배열) 억지로 채우지 않는다.
+  // 틀린 매뉴얼을 미는 것보다, 매뉴얼 없이 안전 안내 + 핫라인/기관을 주는 편이 안전하다.
+  const selectedIds = router.selectedIds;
   selectedForLog = selectedIds;
 
   const selectedCandidates = selectedIds

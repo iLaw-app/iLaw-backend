@@ -91,24 +91,19 @@ describe('diagnose 상태머신', () => {
     expect(openAiCreateMock).toHaveBeenCalledTimes(2);
   });
 
-  it('LLM이 하나도 못 고르면 점수 1위 후보를 폴백 채택한다', async () => {
+  it('라우터가 하나도 못 고르면 매뉴얼을 억지로 채우지 않는다', async () => {
     retrieveCandidatesMock.mockResolvedValue([LABOR_CANDIDATE]);
-    openAiCreateMock
-      .mockResolvedValueOnce(
-        routerResponse({ status: 'relevant', situationSummary: 'x', references: [] }),
-      )
-      .mockResolvedValueOnce(textResponse('안내 문구'));
-    prismaMock.manualArticle.findMany.mockResolvedValue([
-      { id: 1, question: '임금 체불 신고 방법', content: '내용' },
-    ]);
+    openAiCreateMock.mockResolvedValueOnce(
+      routerResponse({ status: 'relevant', situationSummary: 'x', references: [] }),
+    );
 
     const result = await diagnose('상황 설명', '홍길동');
 
-    expect(result.suggestions).toEqual([{ type: 'manual', id: 1, label: '임금 체불 신고 방법' }]);
-    // 폴백 채택 id로 content 조회가 일어났는지
-    expect(prismaMock.manualArticle.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: { in: [1] } } }),
-    );
+    // 틀린 매뉴얼을 밀지 않고, 매뉴얼 없이 안전 폴백 문구를 반환한다.
+    expect(result.status).toBe('relevant');
+    expect(result.suggestions.some((s) => s.type === 'manual')).toBe(false);
+    expect(result.legalAdvice).toContain('조금 더 구체적으로');
+    expect(openAiCreateMock).toHaveBeenCalledOnce(); // 생성(step2) 스킵
   });
 
   it('후보 밖 환각 ID는 제외하고, 안내가 비면 고정 폴백 문구로 대체한다', async () => {

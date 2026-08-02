@@ -173,7 +173,7 @@ const NO_MATCH_MESSAGE =
 const CRISIS_MESSAGE =
   '지금 위험한 상황이라면 망설이지 말고 즉시 112에 신고해 주세요. 아래 긴급 연락처로 도움을 받으실 수 있어요. 혼자 감당하지 마시고 꼭 도움을 요청하세요.';
 
-const MAX_AGENCY_SUGGESTIONS = 4;
+const MAX_AGENCY_SUGGESTIONS = 2;
 
 // 멀티턴/확장 상태(needs_clarification) 및 chatEnded=false 를 실제로 내보낼지 여부.
 // 프론트 계약 변경 전까지는 꺼둔 채 배포해 기존 동작(relevant/unrelated, chatEnded=true)을 유지한다.

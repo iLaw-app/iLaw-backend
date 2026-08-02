@@ -189,6 +189,7 @@ interface RouterResult {
   selectedIds: number[];
   isCrisis: boolean;
   followUpQuestion: string;
+  userRole: string;
 }
 
 function parseRouterResponse(raw: string | null, candidateIds: Set<number>): RouterResult | null {
@@ -213,6 +214,7 @@ function parseRouterResponse(raw: string | null, candidateIds: Set<number>): Rou
       selectedIds,
       isCrisis: parsed.isCrisis === true,
       followUpQuestion: typeof parsed.followUpQuestion === 'string' ? parsed.followUpQuestion : '',
+      userRole: typeof parsed.userRole === 'string' ? parsed.userRole : '',
     };
   } catch {
     return null;
@@ -235,12 +237,14 @@ export async function diagnose(
   let selectedForLog: number[] = [];
   let step1Tokens: number | undefined;
   let step2Tokens: number | undefined;
+  let userRoleForLog: string | undefined;
 
   const finish = (result: DiagnoseResult, crisis = false): DiagnoseResult => {
     logDiagnosis({
       userId: opts.userId,
       conversationId: opts.conversationId,
       status: result.status,
+      userRole: userRoleForLog,
       crisis,
       retrievedCount,
       selectedIds: selectedForLog,
@@ -287,6 +291,7 @@ export async function diagnose(
   step1Tokens = step1Res.usage?.total_tokens;
 
   const router = parseRouterResponse(step1Res.choices[0].message.content, candidateIds);
+  if (router) userRoleForLog = router.userRole || undefined;
 
   if (!router) {
     console.error('[AI] router JSON parse failed; returning safe fallback');

@@ -16,6 +16,7 @@ export interface DiagnosisMetrics {
   userId?: string;
   conversationId?: string;
   status: string;
+  userRole?: string;
   crisis: boolean;
   retrievedCount: number;
   selectedIds: number[];

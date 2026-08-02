@@ -136,6 +136,15 @@ function maxCompletionTokens(): number {
   return positiveInteger(process.env.AI_MAX_COMPLETION_TOKENS, DEFAULT_MAX_COMPLETION_TOKENS);
 }
 
+// 라우터(분류·매뉴얼 선택)는 정확도가 중요해 gpt-4o, 생성은 비용을 위해 gpt-4o-mini.
+// 둘 다 env로 오버라이드 가능.
+function routerModel(): string {
+  return process.env.AI_ROUTER_MODEL || 'gpt-4o';
+}
+function generationModel(): string {
+  return process.env.AI_GENERATION_MODEL || 'gpt-4o-mini';
+}
+
 // ── 메인 로직 ──────────────────────────────────────────────────
 
 export type DiagnoseStatus = 'relevant' | 'unrelated' | 'needs_clarification' | 'crisis';
@@ -278,7 +287,7 @@ export async function diagnose(
   // ── GPT 1차(라우터): 분류 + 후보 중 매뉴얼 선택 ──
   const tStep1 = Date.now();
   const step1Res = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: routerModel(),
     max_completion_tokens: maxCompletionTokens(),
     response_format: { type: 'json_object' },
     messages: [
@@ -359,7 +368,7 @@ export async function diagnose(
   if (contentBlocks) {
     const tStep2 = Date.now();
     const step2Res = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: generationModel(),
       max_completion_tokens: maxCompletionTokens(),
       messages: [
         { role: 'system', content: buildGeneratePrompt(contentBlocks, userLabel, { crisis }) },

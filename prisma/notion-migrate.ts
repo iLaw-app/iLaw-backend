@@ -5,6 +5,7 @@ import * as cheerio from 'cheerio';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { PrismaClient } from '@prisma/client';
 import { printScriptMode, resolveScriptMode } from './script-safety';
+import { buildPublicObjectUrl } from '../src/utils/storage-url';
 
 const prisma = new PrismaClient();
 
@@ -17,7 +18,6 @@ const s3 = new S3Client({
 });
 
 const BUCKET = process.env.AWS_S3_BUCKET!;
-const REGION = process.env.AWS_REGION!;
 const EXPORT_DIR = path.join(__dirname, 'data/notion-export/DB');
 
 const CATEGORY_CONFIG: Record<string, { slug: string; order: number }> = {
@@ -43,7 +43,7 @@ async function uploadToS3(filePath: string, s3Key: string): Promise<string> {
     Body: fs.readFileSync(filePath),
     ContentType: contentTypeMap[ext] ?? 'image/png',
   }));
-  return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${s3Key}`;
+  return buildPublicObjectUrl(s3Key);
 }
 
 async function parseHtmlFile(htmlFile: string, uploadImages = true) {

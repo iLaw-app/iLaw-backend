@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './config/env';
 import app from './app';
 import { loadManualCache } from './services/ai.service';
 import { cleanupExpiredOAuthRecords, OAUTH_CLEANUP_INTERVAL_MS } from './services/oauth.service';

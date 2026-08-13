@@ -8,6 +8,7 @@
     "start": "npx prisma migrate deploy && node dist/server.js",
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
+    "migrate:audit": "ts-node prisma/audit-migrations.ts",
     "db:generate": "prisma generate",
     "user:set-role": "ts-node src/cli/set-user-role.ts",
     "seed:check": "ts-node prisma/seed.ts",

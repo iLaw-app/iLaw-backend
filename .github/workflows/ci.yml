@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      # prisma generate와 테스트는 실제 접속을 하지 않지만 스키마가 이 변수를 참조한다.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # migrate:audit이 base 브랜치와 diff를 계산하므로 전체 히스토리가 필요하다.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      # 되돌릴 수 없는 마이그레이션은 머지 후 다음 배포에서 운영 DB에 자동 적용된다
+      # (railway.toml startCommand = prisma migrate deploy). 승인 주석 없이 통과하지 못하게 막는다.
+      - name: Audit destructive migrations
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "$BASE_REF" --depth=0
+          npm run migrate:audit -- --base="origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}

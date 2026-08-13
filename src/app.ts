@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
+import { buildCorsOptions } from './config/cors';
 import authRouter from './routes/auth';
 import manualRouter from './routes/manual';
 import qnaRouter from './routes/qa';
@@ -14,7 +15,7 @@ import { errorHandler } from './middlewares/errorHandler';
 
 const app = express();
 
-app.use(cors());
+app.use(cors(buildCorsOptions()));
 app.use(express.json());
 app.use(passport.initialize());
 

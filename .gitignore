@@ -1,6 +1,8 @@
 node_modules
 dist/
 .env
+.env.*
+!.env.example
 /generated/prisma
 .claude/
 CLAUDE.md
@@ -8,3 +10,4 @@ CLAUDE.md
 .DS_Store
 .vscode/
 prisma/data/manual/
+prisma/data/notion-export/

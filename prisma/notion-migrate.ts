@@ -20,7 +20,9 @@ const s3 = new S3Client({
 const BUCKET = process.env.AWS_S3_BUCKET!;
 const EXPORT_DIR = path.join(__dirname, 'data/notion-export/DB');
 
-const CATEGORY_CONFIG: Record<string, { slug: string; order: number }> = {
+// 키 = Notion "카테고리" 속성값. displayName을 지정하면 DB에 저장되는 이름은 그쪽을 따른다
+// (Notion 쪽 명칭을 바꾸지 않고 서비스 노출명만 다르게 가져갈 때 사용).
+const CATEGORY_CONFIG: Record<string, { slug: string; order: number; displayName?: string }> = {
   '금융':             { slug: 'finance',            order: 1 },
   '노동':             { slug: 'labor',               order: 2 },
   '성폭력':           { slug: 'sexual-violence',     order: 3 },
@@ -29,6 +31,7 @@ const CATEGORY_CONFIG: Record<string, { slug: string; order: number }> = {
   '출생/양육':        { slug: 'birth-and-parenting', order: 6 },
   '법정대리인':       { slug: 'parental-rights',     order: 7 },
   '학교폭력':         { slug: 'school-violence',     order: 8 },
+  '생활 지원':        { slug: 'out-of-school-youth', order: 9, displayName: '학교 밖 청소년' },
 };
 
 async function uploadToS3(filePath: string, s3Key: string): Promise<string> {
@@ -165,13 +168,14 @@ async function main() {
   const categoryRows = await prisma.$transaction(async (transaction) => {
     const categoryMap: Record<string, number> = {};
     const rows: Array<{ id: number; name: string }> = [];
-    for (const [name, cfg] of Object.entries(CATEGORY_CONFIG)) {
+    for (const [notionName, cfg] of Object.entries(CATEGORY_CONFIG)) {
+      const name = cfg.displayName ?? notionName;
       const category = await transaction.manualCategory.upsert({
         where: { slug: cfg.slug },
         update: { name, order: cfg.order },
         create: { name, slug: cfg.slug, order: cfg.order },
       });
-      categoryMap[name] = category.id;
+      categoryMap[notionName] = category.id;
       rows.push({ id: category.id, name });
     }
 

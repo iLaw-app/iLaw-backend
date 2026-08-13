@@ -370,6 +370,47 @@ export async function getMyBookmarks(userId: string) {
   }));
 }
 
+// 목록의 작성자는 전부 '익명'으로 가려지므로 클라이언트가 목록만 보고 자기 글을
+// 골라낼 수 없다. 글마다 상세를 조회해 isAuthor로 판별하는 N+1을 없애기 위한 엔드포인트.
+// 응답 형태는 listPosts의 posts 항목과 동일하다.
+export async function getMyPosts(userId: string) {
+  const posts = await prisma.communityPost.findMany({
+    where: { authorId: userId, status: 'visible' },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      title: true,
+      content: true,
+      poll: true,
+      imageUrls: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: {
+          likes: true,
+          comments: { where: { status: { notIn: UNCOUNTED_COMMENT_STATUSES } } },
+          bookmarks: true,
+        },
+      },
+    },
+  });
+  const voteCounts = await getVoteCounts(posts.map((post) => post.id));
+
+  return posts.map((p) => ({
+    id: p.id,
+    nickname: ANONYMOUS_POST_AUTHOR,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+    title: p.title,
+    content: p.content,
+    imageUrls: p.imageUrls,
+    likes: p._count.likes,
+    bookmarks: p._count.bookmarks,
+    comments: p._count.comments,
+    poll: formatPoll(p.poll, voteCounts.get(p.id)),
+  }));
+}
+
 export async function votePoll(postId: number, userId: string, optionIndex: number) {
   const post = await prisma.communityPost.findUnique({
     where: { id: postId },

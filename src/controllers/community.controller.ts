@@ -120,6 +120,11 @@ export async function getMyBookmarks(req: AuthRequest, res: Response) {
   res.json(posts);
 }
 
+export async function getMyPosts(req: AuthRequest, res: Response) {
+  const posts = await communityService.getMyPosts(req.userId!);
+  res.json(posts);
+}
+
 export async function toggleCommentLike(req: AuthRequest, res: Response) {
   const commentId = requireId(res, req.params.commentId);
   if (commentId === null) return;

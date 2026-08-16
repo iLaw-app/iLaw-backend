@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   communityPost: {
     findMany: vi.fn(),
     count: vi.fn(),
@@ -48,6 +49,7 @@ function postRow() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  prismaMock.$transaction.mockImplementation(async (operation: (tx: typeof prismaMock) => unknown) => operation(prismaMock));
   prismaMock.communityPost.findUnique.mockResolvedValue(postRow());
   prismaMock.communityPost.create.mockResolvedValue({
     id: 1,
@@ -195,6 +197,24 @@ describe('원자적 투표와 선택지 잠금', () => {
 
     expect(result).toEqual({ error: 'poll_locked' });
     expect(prismaMock.communityPost.update).not.toHaveBeenCalled();
+  });
+
+  it('투표 저장과 결과 집계를 Serializable 트랜잭션으로 보호한다', async () => {
+    await communityService.votePoll(1, 'user-1', 0);
+
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
+  });
+
+  it('선택지 잠금 확인과 게시글 수정을 Serializable 트랜잭션으로 보호한다', async () => {
+    await communityService.updatePost(1, 'author-1', {
+      poll: { options: [{ label: '유지' }, { label: '변경' }] },
+    });
+
+    expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
   });
 
   it('컨트롤러가 poll_locked를 HTTP 409로 매핑한다', async () => {

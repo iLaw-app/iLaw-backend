@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
 
 const prismaMock = vi.hoisted(() => ({
+  $transaction: vi.fn(),
   communityPost: {
     findUnique: vi.fn(),
     create: vi.fn(),
@@ -39,6 +40,7 @@ function uniqueViolation() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  prismaMock.$transaction.mockImplementation(async (operation: (tx: typeof prismaMock) => unknown) => operation(prismaMock));
   prismaMock.communityComment.findMany.mockResolvedValue([]);
 });
 
@@ -100,6 +102,35 @@ describe('작성 시 하드블록 + 게시 후 비동기 검열', () => {
 
     expect(result).toEqual({ error: 'profanity_blocked' });
     expect(prismaMock.communityPost.create).not.toHaveBeenCalled();
+  });
+
+  it('게시글 수정에서도 금칙어를 저장 전에 차단한다', async () => {
+    prismaMock.communityPost.findUnique.mockResolvedValue({ authorId: 'user-1', poll: null });
+
+    const result = await communityService.updatePost(1, 'user-1', { content: '시-발 수정' });
+
+    expect(result).toEqual({ error: 'profanity_blocked' });
+    expect(prismaMock.communityPost.update).not.toHaveBeenCalled();
+    expect(moderateAndBlind).not.toHaveBeenCalled();
+  });
+
+  it('정상 게시글 수정도 저장 후 AI 검열을 예약한다', async () => {
+    prismaMock.communityPost.findUnique.mockResolvedValue({ authorId: 'user-1', poll: null });
+    prismaMock.communityPost.update.mockResolvedValue({
+      id: 1,
+      title: '수정 제목',
+      content: '수정 본문',
+      imageUrls: [],
+      poll: null,
+      updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+    });
+
+    const result = await communityService.updatePost(1, 'user-1', { title: '수정 제목' });
+
+    expect(result).toHaveProperty('data');
+    expect(moderateAndBlind).toHaveBeenCalledWith({
+      kind: 'post', id: 1, text: '수정 제목\n수정 본문', authorId: 'user-1',
+    });
   });
 });
 
@@ -178,6 +209,26 @@ describe('게시글 신고 → 3명 누적 시 soft delete', () => {
     expect(createNotification).toHaveBeenCalledWith(
       'author-1', 'community_removed', expect.any(String), expect.any(String), 7,
     );
+  });
+});
+
+describe('비공개/삭제 게시글의 댓글 공개 조회', () => {
+  it.each(['hidden', 'removed', 'deleted'])('%s 게시글의 댓글은 공개하지 않는다', async (status) => {
+    prismaMock.communityPost.findUnique.mockResolvedValue({ authorId: 'post-author', status });
+    prismaMock.communityComment.findMany.mockResolvedValue([
+      {
+        id: 1,
+        authorId: 'author-1',
+        parentId: null,
+        status: 'visible',
+        content: '노출되면 안 되는 댓글',
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+        author: { id: 'author-1', nickname: '닉' },
+        _count: { likes: 0 },
+      },
+    ]);
+
+    await expect(communityService.listComments(1)).resolves.toEqual([]);
   });
 });
 

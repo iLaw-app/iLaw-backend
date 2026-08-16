@@ -14,13 +14,14 @@ const upload = multer({
 
 export function uploadRateLimitKey(req: Request): string {
   const authReq = req as AuthRequest;
-  const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-  return `${authReq.userId ?? 'anonymous'}:${ip}`;
+  if (authReq.userId) return `user:${authReq.userId}`;
+  return `anonymous:${req.ip ?? req.socket.remoteAddress ?? 'unknown'}`;
 }
 
 export const uploadRateLimiter = createRateLimiter({
   windowMs: ONE_DAY_MS,
   max: Number(process.env.UPLOAD_DAILY_LIMIT ?? 50),
+  maxKeys: Number(process.env.UPLOAD_RATE_LIMIT_MAX_KEYS ?? 100_000),
   keyGenerator: uploadRateLimitKey,
   message: 'Upload daily rate limit exceeded',
 });

@@ -112,17 +112,17 @@ describe('upload endpoint', () => {
     expect(uploadToS3Mock).toHaveBeenCalledTimes(50);
   });
 
-  it('uses both user ID and IP in the upload limiter key', () => {
+  it('uses the authenticated user ID as the primary upload limiter key', () => {
     const req = {
       userId: 'user-1',
       ip: '203.0.113.10',
       socket: {},
     } as AuthRequest;
 
-    expect(uploadRateLimitKey(req)).toBe('user-1:203.0.113.10');
+    expect(uploadRateLimitKey(req)).toBe('user:user-1');
     expect(uploadRateLimitKey({ ...req, userId: 'user-2' } as AuthRequest))
       .not.toBe(uploadRateLimitKey(req));
     expect(uploadRateLimitKey({ ...req, ip: '203.0.113.11' } as AuthRequest))
-      .not.toBe(uploadRateLimitKey(req));
+      .toBe(uploadRateLimitKey(req));
   });
 });

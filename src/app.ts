@@ -16,12 +16,13 @@ import prisma from './prisma/client';
 import { createHealthRouter } from './health';
 import { accessLogger, requestId } from './middlewares/logging';
 import { globalRateLimiter } from './middlewares/rateLimit';
+import { trustedProxy } from './config/trustedProxy';
 
 const app = express();
 
 configureAuthPassport();
 
-app.set('trust proxy', 1);
+app.set('trust proxy', trustedProxy);
 app.use(requestId);
 app.use(accessLogger());
 app.use('/health', createHealthRouter(prisma));

@@ -3,6 +3,7 @@ import { Request, RequestHandler } from 'express';
 interface RateLimitOptions {
   windowMs: number;
   max: number;
+  maxKeys?: number;
   keyGenerator?: (req: Request) => string;
   message?: string;
 }
@@ -14,6 +15,7 @@ interface Entry {
 
 export interface RateLimiter {
   middleware: RequestHandler;
+  storeSize(): number;
   stop(): void;
 }
 
@@ -26,11 +28,15 @@ export function createRateLimiter(options: RateLimitOptions): RateLimiter {
   if (!Number.isFinite(options.windowMs) || options.windowMs <= 0 || !Number.isInteger(options.max) || options.max <= 0) {
     throw new Error('Rate limit windowMs and max must be positive');
   }
+  const maxKeys = options.maxKeys ?? 100_000;
+  if (!Number.isInteger(maxKeys) || maxKeys <= 0) throw new Error('Rate limit maxKeys must be a positive integer');
 
   const entries = new Map<string, Entry>();
-  const cleanupTimer = setInterval(() => {
-    const now = Date.now();
+  const removeExpired = (now: number) => {
     for (const [key, entry] of entries) if (entry.resetAt <= now) entries.delete(key);
+  };
+  const cleanupTimer = setInterval(() => {
+    removeExpired(Date.now());
   }, Math.min(options.windowMs, 60_000));
   cleanupTimer.unref();
 
@@ -38,7 +44,23 @@ export function createRateLimiter(options: RateLimitOptions): RateLimiter {
     const now = Date.now();
     const key = options.keyGenerator?.(req) ?? req.ip ?? req.socket.remoteAddress ?? 'unknown';
     let entry = entries.get(key);
-    if (!entry || entry.resetAt <= now) {
+    if (entry?.resetAt !== undefined && entry.resetAt <= now) {
+      entries.delete(key);
+      entry = undefined;
+    }
+    if (!entry) {
+      // Reclaim stale capacity first. If every slot is still active, reject only
+      // this untracked identity; never evict a live counter or share overflow state.
+      removeExpired(now);
+      if (entries.size >= maxKeys) {
+        const resetAt = now + options.windowMs;
+        res.setHeader('RateLimit-Limit', String(options.max));
+        res.setHeader('RateLimit-Remaining', '0');
+        res.setHeader('RateLimit-Reset', String(Math.ceil(resetAt / 1000)));
+        res.setHeader('Retry-After', String(Math.max(1, Math.ceil(options.windowMs / 1000))));
+        res.status(429).json({ message: options.message ?? 'Too many requests' });
+        return;
+      }
       entry = { count: 0, resetAt: now + options.windowMs };
       entries.set(key, entry);
     }
@@ -57,10 +79,15 @@ export function createRateLimiter(options: RateLimitOptions): RateLimiter {
     next();
   };
 
-  return { middleware, stop: () => clearInterval(cleanupTimer) };
+  return { middleware, storeSize: () => entries.size, stop: () => clearInterval(cleanupTimer) };
 }
 
+const globalWindowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 15 * 60_000);
+const globalMax = Number(process.env.RATE_LIMIT_MAX ?? 300);
+const globalMaxKeys = Number(process.env.RATE_LIMIT_MAX_KEYS ?? 100_000);
+
 export const globalRateLimiter = createRateLimiter({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 15 * 60_000),
-  max: Number(process.env.RATE_LIMIT_MAX ?? 300),
+  windowMs: globalWindowMs,
+  max: globalMax,
+  maxKeys: globalMaxKeys,
 });

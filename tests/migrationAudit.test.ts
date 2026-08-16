@@ -1,7 +1,21 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import { classifyMigrationChanges, findDestructiveOperations } from '../prisma/audit-migrations';
 
 describe('migration audit', () => {
+  it('keeps the legacy refresh token column during the session-table expand migration', () => {
+    const schema = readFileSync(join(process.cwd(), 'prisma/schema.prisma'), 'utf8');
+    const migration = readFileSync(
+      join(process.cwd(), 'prisma/migrations/20260816000000_add_refresh_token_sessions/migration.sql'),
+      'utf8',
+    );
+
+    expect(schema).toMatch(/\brefreshToken\s+String\?/);
+    expect(migration).not.toMatch(/DROP\s+COLUMN\s+"refreshToken"/i);
+    expect(migration).toContain('CREATE TABLE "RefreshTokenSession"');
+  });
+
   it('classifies added, modified, and renamed migration SQL paths', () => {
     const changes = classifyMigrationChanges([
       'A\tprisma/migrations/20260101_add/migration.sql',

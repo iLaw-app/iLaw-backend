@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Diagnose eval cases",
+  "type": "object",
+  "required": ["version", "cases"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "integer" },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "message", "tags", "expect"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "message": { "type": "string", "minLength": 1 },
+          "tags": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "expect": {
+            "type": "object",
+            "required": ["status"],
+            "additionalProperties": false,
+            "properties": {
+              "status": { "enum": ["relevant", "unrelated"] },
+              "crisis": { "type": "boolean" },
+              "userRole": { "enum": ["피해자", "가해자", "목격자", "불명확"] },
+              "manuals": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "acceptable": { "type": "array", "items": { "type": "string" } },
+              "forbidden": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

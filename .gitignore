@@ -12,3 +12,6 @@ CLAUDE.md
 .vscode/
 prisma/data/manual/
 prisma/data/notion-export/
+# AI diagnosis eval runs (baseline is tracked, everything else is local)
+eval-results/*
+!eval-results/diagnose-baseline.json

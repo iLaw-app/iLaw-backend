@@ -5,6 +5,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "prisma/audit-migrations.ts", "vitest.config.mts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "prisma/audit-migrations.ts", "prisma/embed-manuals.ts", "prisma/eval/*.ts", "vitest.config.mts"],
   "exclude": ["node_modules", "dist", "tests/moderation.no-key.test.ts"]
 }

@@ -1,6 +1,7 @@
 import prisma from '../prisma/client';
 import { rankManuals } from './manual.service';
 import { embedText, toVectorLiteral } from './ai.embeddings';
+import { logger } from '../middlewares/logging';
 
 // A single manual surfaced by retrieval, trimmed to what the router LLM needs
 // to decide (title + summary + category). `content` is intentionally omitted —
@@ -51,7 +52,10 @@ async function semanticSearch(query: string, limit: number): Promise<number[]> {
     `;
     return rows.map((r) => r.id);
   } catch (err) {
-    console.error('[AI] semantic search failed; falling back to lexical only', err);
+    logger.error({
+      event: 'ai_semantic_search_failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
     return [];
   }
 }

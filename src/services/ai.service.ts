@@ -5,8 +5,14 @@ import { buildRouterPrompt, buildGeneratePrompt } from './ai.prompts';
 import { detectCrisis, hotlinesFor } from './ai.crisis';
 import { getAgencies } from './manual.service';
 import { logDiagnosis } from './ai.metrics';
+import { logger } from '../middlewares/logging';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai: OpenAI | undefined;
+
+function openAiClient(): OpenAI {
+  openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openai;
+}
 
 const DEFAULT_DAILY_REQUEST_LIMIT = 10;
 const DEFAULT_BURST_REQUEST_LIMIT = 3;
@@ -203,27 +209,33 @@ interface RouterResult {
 
 function parseRouterResponse(raw: string | null, candidateIds: Set<number>): RouterResult | null {
   try {
-    const parsed = JSON.parse(raw ?? '{}');
+    const parsed: unknown = JSON.parse(raw ?? '{}');
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const value = parsed as Record<string, unknown>;
     const status =
-      parsed.status === 'relevant' || parsed.status === 'needs_clarification'
-        ? parsed.status
+      value.status === 'relevant' || value.status === 'needs_clarification'
+        ? value.status
         : 'unrelated';
 
-    const selectedIds: number[] = Array.isArray(parsed.references)
-      ? parsed.references
-          .filter((r: any) => r?.type === 'manual' && typeof r.id === 'number')
-          .map((r: any) => r.id as number)
+    const selectedIds: number[] = Array.isArray(value.references)
+      ? value.references
+          .filter((reference: unknown): reference is { type: 'manual'; id: number } =>
+            typeof reference === 'object'
+            && reference !== null
+            && (reference as Record<string, unknown>).type === 'manual'
+            && typeof (reference as Record<string, unknown>).id === 'number')
+          .map(reference => reference.id)
           // 후보 밖의 환각 ID 방지: 실제 추천 후보에 포함된 것만 채택
-          .filter((id: number) => candidateIds.has(id))
+          .filter(id => candidateIds.has(id))
       : [];
 
     return {
       status,
-      situationSummary: typeof parsed.situationSummary === 'string' ? parsed.situationSummary : '',
+      situationSummary: typeof value.situationSummary === 'string' ? value.situationSummary : '',
       selectedIds,
-      isCrisis: parsed.isCrisis === true,
-      followUpQuestion: typeof parsed.followUpQuestion === 'string' ? parsed.followUpQuestion : '',
-      userRole: typeof parsed.userRole === 'string' ? parsed.userRole : '',
+      isCrisis: value.isCrisis === true,
+      followUpQuestion: typeof value.followUpQuestion === 'string' ? value.followUpQuestion : '',
+      userRole: typeof value.userRole === 'string' ? value.userRole : '',
     };
   } catch {
     return null;
@@ -286,7 +298,7 @@ export async function diagnose(
 
   // ── GPT 1차(라우터): 분류 + 후보 중 매뉴얼 선택 ──
   const tStep1 = Date.now();
-  const step1Res = await openai.chat.completions.create({
+  const step1Res = await openAiClient().chat.completions.create({
     model: routerModel(),
     max_completion_tokens: maxCompletionTokens(),
     response_format: { type: 'json_object' },
@@ -303,7 +315,7 @@ export async function diagnose(
   if (router) userRoleForLog = router.userRole || undefined;
 
   if (!router) {
-    console.error('[AI] router JSON parse failed; returning safe fallback');
+    logger.error({ event: 'ai_router_parse_failed' });
     return finish({
       status: 'unrelated',
       situationSummary: '',
@@ -365,7 +377,7 @@ export async function diagnose(
   let legalAdvice = '';
   if (contentBlocks) {
     const tStep2 = Date.now();
-    const step2Res = await openai.chat.completions.create({
+    const step2Res = await openAiClient().chat.completions.create({
       model: generationModel(),
       max_completion_tokens: maxCompletionTokens(),
       messages: [

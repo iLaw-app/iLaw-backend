@@ -5,6 +5,8 @@
 //   userId, conversationId, status, crisis, retrievedCount, selectedIds,
 //   step1Tokens, step2Tokens, latencyMs{ retrieve, step1, step2, total }
 
+import { logger } from '../middlewares/logging';
+
 export interface DiagnosisLatency {
   retrieve: number;
   step1: number;
@@ -26,6 +28,5 @@ export interface DiagnosisMetrics {
 }
 
 export function logDiagnosis(metrics: DiagnosisMetrics): void {
-  // 구조화 로그: 수집기(예: Railway logs)가 JSON으로 파싱할 수 있게 한 줄로.
-  console.log(JSON.stringify({ evt: 'ai.diagnose', ...metrics }));
+  logger.info({ event: 'ai_diagnosis', ...metrics });
 }

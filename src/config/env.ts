@@ -40,6 +40,12 @@ export function validateEnv(): void {
     process.exit(1);
   }
 
+  const oauthStateSecret = process.env.OAUTH_STATE_SECRET;
+  if (oauthStateSecret && Buffer.byteLength(oauthStateSecret, 'utf8') < 32) {
+    console.error('[env] Invalid OAuth configuration: OAUTH_STATE_SECRET must be at least 32 bytes');
+    process.exit(1);
+  }
+
   for (const { feature, vars } of FEATURE_GROUPS) {
     const missing = vars.filter((key) => !process.env[key]);
     if (missing.length > 0) {

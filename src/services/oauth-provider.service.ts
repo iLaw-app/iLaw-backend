@@ -60,6 +60,9 @@ async function withTimeout<T>(operation: Promise<T>): Promise<T> {
 const GOOGLE_PROVIDER_NETWORK_ERROR_CODES = new Set([
   'ENOTFOUND',
   'ECONNRESET',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
   'EAI_AGAIN',
   'ETIMEDOUT',
 ]);

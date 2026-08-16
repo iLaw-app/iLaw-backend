@@ -31,7 +31,15 @@ describe('OAuth provider adapter', () => {
     await expect(verifyKakaoAccessToken('slow')).rejects.toBeInstanceOf(OAuthProviderUnavailableError);
   });
 
-  it.each(['ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN', 'ETIMEDOUT'])(
+  it.each([
+    'ENOTFOUND',
+    'ECONNRESET',
+    'EAI_AGAIN',
+    'ETIMEDOUT',
+    'ECONNREFUSED',
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+  ])(
     'Google verifyIdToken의 %s 네트워크 오류를 provider 장애로 분류한다',
     async (code) => {
       const { verifyGoogleIdToken, OAuthProviderUnavailableError } = await import('../src/services/oauth-provider.service');

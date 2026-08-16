@@ -3,7 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import passport from 'passport';
 import { buildCorsOptions } from './config/cors';
-import authRouter from './routes/auth';
+import authRouter, { configureAuthPassport } from './routes/auth';
 import manualRouter from './routes/manual';
 import qnaRouter from './routes/qa';
 import uploadRouter from './routes/upload';
@@ -18,6 +18,8 @@ import { accessLogger, requestId } from './middlewares/logging';
 import { globalRateLimiter } from './middlewares/rateLimit';
 
 const app = express();
+
+configureAuthPassport();
 
 app.set('trust proxy', 1);
 app.use(requestId);

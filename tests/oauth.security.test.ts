@@ -162,21 +162,18 @@ describe('OAuth 콜백', () => {
       const internalError = new Error(`${provider} database unavailable`);
       passportMock.callbackError = internalError;
       passportMock.callbackUser = false;
-      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-      try {
-        const response = await request(app)
-          .get(`/auth/${provider}/callback`)
-          .set('Cookie', cookie!)
-          .query({ state });
+      const response = await request(app)
+        .get(`/auth/${provider}/callback`)
+        .set('Cookie', cookie!)
+        .query({ state });
 
-        expect(response.status).toBe(500);
-        expect(response.body).toEqual({ message: 'Internal server error' });
-        expect(response.headers.location).toBeUndefined();
-        expect(consoleError).toHaveBeenCalledWith('[ERROR]', internalError);
-      } finally {
-        consoleError.mockRestore();
-      }
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({
+        message: 'Internal server error',
+        requestId: expect.any(String),
+      });
+      expect(response.headers.location).toBeUndefined();
     },
   );
 

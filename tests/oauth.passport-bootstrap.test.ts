@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const passportMock = vi.hoisted(() => ({ use: vi.fn(), authenticate: vi.fn() }));
+const passportMock = vi.hoisted(() => ({
+  use: vi.fn(),
+  authenticate: vi.fn(),
+  initialize: vi.fn(() => (_req: unknown, _res: unknown, next: () => void) => next()),
+}));
 const kakaoStrategy = vi.hoisted(() => vi.fn(function Strategy(this: object) { return this; }));
 const googleStrategy = vi.hoisted(() => vi.fn(function Strategy(this: object) { return this; }));
 
@@ -27,6 +31,14 @@ describe('Passport bootstrap', () => {
     expect(passportMock.use).not.toHaveBeenCalled();
 
     authRoute.configureAuthPassport(passportMock as never);
+
+    expect(passportMock.use).toHaveBeenCalledTimes(2);
+  });
+
+  it('application bootstrap이 OAuth strategy를 등록한다', async () => {
+    vi.resetModules();
+
+    await import('../src/app');
 
     expect(passportMock.use).toHaveBeenCalledTimes(2);
   });

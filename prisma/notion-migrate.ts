@@ -7,6 +7,7 @@ import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s
 import { PrismaClient } from '@prisma/client';
 import { printScriptMode, resolveScriptMode } from './script-safety';
 import { planArticleSync } from './article-sync';
+import { backfillManualEmbeddings, hasEmbeddingApiKey, planEmbeddingBackfill } from './embed-manuals';
 import { buildPublicObjectUrl } from '../src/utils/storage-url';
 
 const prisma = new PrismaClient();
@@ -291,6 +292,29 @@ async function main() {
   if (categoryRows.removed > 0) {
     console.log(`  주의: 삭제된 ${categoryRows.removed}건에 달린 사용자 스크랩도 함께 제거되었습니다.`);
   }
+
+  await embedAfterLoad();
+}
+
+// 적재 직후 임베딩. 새로 만든/본문이 바뀐 매뉴얼은 해시가 달라 여기서 바로 재임베딩된다.
+// 이 단계를 빼먹으면 신규 매뉴얼이 시맨틱 검색(상황 진단 AI)에 안 잡히므로 기본 실행이다.
+// --skip-embed 로 끌 수 있고, API 키가 없으면 실패시키지 않고(콘텐츠는 이미 커밋됨) 복구 명령을 안내한다.
+async function embedAfterLoad() {
+  if (process.argv.includes('--skip-embed')) {
+    console.log('\n[embed] --skip-embed: 임베딩을 건너뜁니다. 나중에 npm run ai:embed 로 반영하세요.');
+    return;
+  }
+  console.log('');
+  if (!hasEmbeddingApiKey()) {
+    const pending = planEmbeddingBackfill(await prisma.manualArticle.findMany({
+      select: { id: true, question: true, summary: true, content: true, embedInputHash: true },
+    }));
+    console.log(`[embed] ⚠ OPENAI API 키가 없어 임베딩을 건너뜁니다. 미임베딩 ${pending.length}건.`);
+    console.log('  → 키가 있는 환경에서 실행: npx ts-node prisma/backfill-embeddings.ts --apply --target=<local|production> [--confirm-production=ilaw]');
+    return;
+  }
+  const result = await backfillManualEmbeddings(prisma, { apply: true });
+  console.log(`[embed] 완료: ${result.embedded}건 임베딩.`);
 }
 
 main()

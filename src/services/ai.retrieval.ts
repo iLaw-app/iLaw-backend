@@ -1,6 +1,6 @@
 import prisma from '../prisma/client';
 import { rankManuals } from './manual.service';
-import { embedText, toVectorLiteral } from './ai.embeddings';
+import { EMBED_VERSION, embedText, toVectorLiteral } from './ai.embeddings';
 import { logger } from '../middlewares/logging';
 import { safeAiErrorFields } from './ai.logging';
 
@@ -16,38 +16,56 @@ export interface Candidate {
   score: number;
 }
 
-const DEFAULT_TOP_K = 8;
+// 라우터에게 보여줄 후보 수. 골든 케이스 기준 recall@8 0.973 → recall@12 0.991
+// (text-embedding-3-large). 후보 4개 추가는 라우터 입력 ~250토큰 수준이다.
+export const DEFAULT_TOP_K = 12;
 const CANDIDATE_POOL = 150; // rows pulled from DB before ranking
 const SEMANTIC_LIMIT = 20; // semantic neighbours fetched before fusion
+
+// RRF 가중치. 렉시컬 랭커는 질의 전체 문자열/동의어 그룹의 substring 일치라서
+// 구어체 문장에서는 신호가 약하고, "직장"처럼 한 단어가 노동 매뉴얼 전체를 끌어오는
+// 잡음도 낸다. 시맨틱을 주 신호로, 렉시컬은 절반 가중치의 보조(+임베딩 부재 시 폴백)로 둔다.
+const LEXICAL_WEIGHT = 0.5;
+const SEMANTIC_WEIGHT = 1;
 
 function hybridEnabled(): boolean {
   return process.env.AI_HYBRID_SEARCH_ENABLED === 'true';
 }
 
 // Reciprocal Rank Fusion: merge several ranked id-lists into one, robust to the
-// two rankers' incomparable score scales. Pure — exported for unit testing.
-export function fuseRRF(rankedLists: number[][], k = 60): { id: number; score: number }[] {
+// two rankers' incomparable score scales. Optional per-list weights. Pure —
+// exported for unit testing.
+export function fuseRRF(
+  rankedLists: number[][],
+  k = 60,
+  weights: number[] = [],
+): { id: number; score: number }[] {
   const scores = new Map<number, number>();
-  for (const list of rankedLists) {
+  rankedLists.forEach((list, listIndex) => {
+    const weight = weights[listIndex] ?? 1;
     list.forEach((id, index) => {
-      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1));
+      scores.set(id, (scores.get(id) ?? 0) + weight / (k + index + 1));
     });
-  }
+  });
   return [...scores.entries()]
     .map(([id, score]) => ({ id, score }))
     .sort((a, b) => b.score - a.score);
 }
 
 // Semantic neighbours via pgvector cosine distance. Returns ids in similarity
-// order. Any failure (no embeddings backfilled yet, embedding API down, pgvector
+// order. Only rows embedded with the CURRENT embedding version are eligible —
+// a query vector from model A against document vectors from model B is noise.
+// Any failure (no embeddings backfilled yet, embedding API down, pgvector
 // absent) degrades to [] so the caller falls back to lexical-only ranking.
 async function semanticSearch(query: string, limit: number): Promise<number[]> {
   try {
     const embedding = await embedText(query);
+    const versionPrefix = `${EMBED_VERSION}:%`;
     const rows = await prisma.$queryRaw<{ id: number }[]>`
       SELECT "id"
       FROM "ManualArticle"
       WHERE "embedding" IS NOT NULL
+        AND "embedInputHash" LIKE ${versionPrefix}
       ORDER BY "embedding" <=> ${toVectorLiteral(embedding)}::vector
       LIMIT ${limit}
     `;
@@ -66,8 +84,8 @@ async function semanticSearch(query: string, limit: number): Promise<number[]> {
 // several). This replaces stuffing the entire manual list into the prompt.
 //
 // Lexical ranking (trigram + scoreAndRank) is always computed. When hybrid
-// search is enabled, pgvector semantic neighbours are fused in via RRF; the
-// interface (Candidate[]) is unchanged so callers never see the difference.
+// search is enabled, pgvector semantic neighbours are fused in via weighted
+// RRF; the interface (Candidate[]) is unchanged so callers never see the difference.
 export async function retrieveCandidates(
   query: string,
   opts: { limit?: number } = {},
@@ -112,7 +130,7 @@ export async function retrieveCandidates(
   }
 
   // semanticIds가 비면(백필 전/실패) 사실상 렉시컬 단독 순위로 수렴한다.
-  return fuseRRF([lexicalIds, semanticIds])
+  return fuseRRF([lexicalIds, semanticIds], 60, [LEXICAL_WEIGHT, SEMANTIC_WEIGHT])
     .map((f) => byId.get(f.id))
     .filter((c): c is Candidate => c !== undefined)
     .slice(0, limit);

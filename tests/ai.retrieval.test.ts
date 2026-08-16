@@ -9,6 +9,7 @@ const embedTextMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../src/prisma/client', () => ({ default: prismaMock }));
 vi.mock('../src/services/ai.embeddings', () => ({
+  EMBED_VERSION: 'test-model@3',
   embedText: embedTextMock,
   toVectorLiteral: (v: number[]) => `[${v.join(',')}]`,
 }));
@@ -53,6 +54,14 @@ describe('fuseRRF', () => {
 
   it('단일 목록은 순서를 보존한다', () => {
     expect(fuseRRF([[5, 6, 7]]).map((f) => f.id)).toEqual([5, 6, 7]);
+  });
+
+  it('가중치를 주면 가중치가 큰 목록의 1위가 앞선다', () => {
+    // 동일 순위(둘 다 1위)면 가중치로 갈린다: 렉시컬 0.5 vs 시맨틱 1 → 시맨틱 1위(9)가 앞
+    const fused = fuseRRF([[8], [9]], 60, [0.5, 1]);
+    expect(fused.map((f) => f.id)).toEqual([9, 8]);
+    // 가중치를 생략하면 1로 취급 → 동점이면 먼저 넣은 목록 우선(안정 정렬)
+    expect(fuseRRF([[8], [9]], 60, [1]).map((f) => f.id)).toEqual([8, 9]);
   });
 });
 
@@ -105,6 +114,27 @@ describe('retrieveCandidates (하이브리드)', () => {
     expect(ids).toContain(1); // 렉시컬
     expect(ids).toContain(2); // 시맨틱이 추가로 끌어옴
     expect(embedTextMock).toHaveBeenCalledOnce();
+  });
+
+  it('시맨틱 조회는 현재 임베딩 버전으로 만들어진 벡터만 대상으로 한다', async () => {
+    prismaMock.manualArticle.findMany.mockResolvedValue(ARTICLES);
+    prismaMock.$queryRaw.mockResolvedValue([]);
+
+    await retrieveCandidates('임금');
+
+    // $queryRaw 태그드 템플릿: 첫 인자는 SQL 조각, 나머지가 파라미터.
+    const [strings, ...params] = prismaMock.$queryRaw.mock.calls[0];
+    expect(strings.join('?')).toContain('"embedInputHash" LIKE');
+    expect(params).toContain('test-model@3:%');
+  });
+
+  it('시맨틱 이웃이 렉시컬 1위보다 앞에 온다(시맨틱 가중치 1 > 렉시컬 0.5)', async () => {
+    prismaMock.manualArticle.findMany.mockResolvedValue(ARTICLES);
+    prismaMock.$queryRaw.mockResolvedValue([{ id: 2 }]);
+
+    const ids = (await retrieveCandidates('임금')).map((c) => c.id);
+
+    expect(ids).toEqual([2, 1]);
   });
 
   it('시맨틱 조회 실패 시 렉시컬 단독으로 폴백한다', async () => {

@@ -257,7 +257,7 @@ export async function diagnose(
 
   // ── 관측 지표 누적 + 종료 시 한 줄 로깅 ──
   let retrieveMs = 0, step1Ms = 0, step2Ms = 0;
-  let retrievedCount = 0;
+  let retrievedIds: number[] = [];
   let selectedForLog: number[] = [];
   let step1Tokens: number | undefined;
   let step2Tokens: number | undefined;
@@ -270,7 +270,8 @@ export async function diagnose(
       status: result.status,
       userRole: userRoleForLog,
       crisis,
-      retrievedCount,
+      retrievedCount: retrievedIds.length,
+      retrievedIds,
       selectedIds: selectedForLog,
       step1Tokens,
       step2Tokens,
@@ -283,7 +284,7 @@ export async function diagnose(
   const tRetrieve = Date.now();
   const candidates = await retrieveCandidates(message);
   retrieveMs = Date.now() - tRetrieve;
-  retrievedCount = candidates.length;
+  retrievedIds = candidates.map(c => c.id);
   const candidateIds = new Set(candidates.map(c => c.id));
 
   const historyMessages = history.flatMap(h => [

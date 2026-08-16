@@ -62,11 +62,26 @@ const SERVICE_ERROR_DEFAULTS: Record<string, ErrorSpec> = {
 
 // Map a service error code to an HTTP response. `overrides` customises the
 // message/status for a given code (e.g. comment-specific "not_found").
+// `details` is merged into the JSON body (e.g. profanity match positions).
 export function sendServiceError(
   res: Response,
   error: string,
   overrides: Record<string, ErrorSpec> = {},
+  details?: Record<string, unknown>,
 ): void {
   const spec = overrides[error] ?? SERVICE_ERROR_DEFAULTS[error] ?? { status: 400, message: '요청을 처리할 수 없습니다.' };
-  res.status(spec.status).json({ message: spec.message });
+  res.status(spec.status).json({ message: spec.message, ...details });
+}
+
+// 금칙어 차단 응답 본문. 프론트가 입력창에서 해당 구간을 표시할 수 있도록 필드별 매치 위치를 함께 내려준다.
+export function profanityDetails(fields: Record<string, unknown>): Record<string, unknown> {
+  return { code: 'profanity_blocked', fields };
+}
+
+// 서비스 실패 결과에서 응답 본문에 덧붙일 details 를 뽑아낸다 (현재는 금칙어 차단만 해당).
+export function serviceErrorDetails(result: { error?: string; details?: unknown }): Record<string, unknown> | undefined {
+  if (result.error === 'profanity_blocked' && result.details && typeof result.details === 'object') {
+    return profanityDetails(result.details as Record<string, unknown>);
+  }
+  return undefined;
 }

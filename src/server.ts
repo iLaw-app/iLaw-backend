@@ -4,6 +4,7 @@ import app from './app';
 import { startServer } from './bootstrap';
 import { logger } from './middlewares/logging';
 import { globalRateLimiter } from './middlewares/rateLimit';
+import { moderationRateLimiter } from './routes/moderation';
 import prisma from './prisma/client';
 import { cleanupExpiredOAuthRecords, OAUTH_CLEANUP_INTERVAL_MS } from './services/oauth.service';
 
@@ -15,7 +16,7 @@ async function main(): Promise<void> {
     cleanupIntervalMs: OAUTH_CLEANUP_INTERVAL_MS,
     port: process.env.PORT ?? 3000,
     shutdownDeadlineMs: Number(process.env.SHUTDOWN_DEADLINE_MS ?? 10_000),
-    stopTasks: [globalRateLimiter.stop],
+    stopTasks: [globalRateLimiter.stop, moderationRateLimiter.stop],
   });
 }
 

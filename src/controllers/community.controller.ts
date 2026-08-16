@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { requireId, sendServiceError } from '../utils/http';
+import { requireId, sendServiceError, serviceErrorDetails } from '../utils/http';
 import * as communityService from '../services/community.service';
 import {
   validateCommentInput,
@@ -43,7 +43,7 @@ export async function createPost(req: AuthRequest, res: Response) {
   if ('error' in parsed) { sendServiceError(res, parsed.error); return; }
 
   const post = await communityService.createPost(req.userId!, parsed.data);
-  if (post.error) { sendServiceError(res, post.error); return; }
+  if (post.error) { sendServiceError(res, post.error, {}, serviceErrorDetails(post)); return; }
   res.status(201).json(post.data);
 }
 
@@ -54,7 +54,7 @@ export async function updatePost(req: AuthRequest, res: Response) {
   const parsed = validateUpdatePostInput(req.body);
   if ('error' in parsed) { sendServiceError(res, parsed.error); return; }
   const result = await communityService.updatePost(id, req.userId!, parsed.data);
-  if (result.error) { sendServiceError(res, result.error); return; }
+  if (result.error) { sendServiceError(res, result.error, {}, serviceErrorDetails(result)); return; }
   res.json(result.data);
 }
 
@@ -117,7 +117,7 @@ export async function createComment(req: AuthRequest, res: Response) {
     parsed.data.content,
     parsed.data.parentId,
   );
-  if (result.error) { sendServiceError(res, result.error); return; }
+  if (result.error) { sendServiceError(res, result.error, {}, serviceErrorDetails(result)); return; }
   res.status(201).json(result.data);
 }
 

@@ -1,5 +1,5 @@
 import prisma from '../prisma/client';
-import { containsProfanity } from './profanity';
+import { checkProfanityFields } from './profanity';
 import { moderateAndBlind } from './moderation.service';
 import { HIDDEN_POST_STATUSES } from './community-shared';
 import { buildCommentTree, buildLabelMapFromComments } from './community-presenter';
@@ -26,7 +26,8 @@ export async function listComments(postId: number, userId?: string) {
 
 export async function createComment(postId: number, userId: string, content: string, parentId?: number) {
   // 1차 필터: 로컬 금칙어 사전에 걸리면 작성 자체를 거부한다.
-  if (containsProfanity(content)) return { error: 'profanity_blocked' as const };
+  const profanity = checkProfanityFields({ content });
+  if (profanity) return { error: 'profanity_blocked' as const, details: profanity };
 
   const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true, status: true } });
   if (!post || HIDDEN_POST_STATUSES.includes(post.status)) return { error: 'not_found' as const };

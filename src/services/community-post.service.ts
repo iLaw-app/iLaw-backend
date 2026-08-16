@@ -1,5 +1,5 @@
 import prisma from '../prisma/client';
-import { containsProfanity } from './profanity';
+import { checkProfanityFields } from './profanity';
 import { moderateAndBlind } from './moderation.service';
 import { ANONYMOUS_POST_AUTHOR, HIDDEN_POST_STATUSES, UNCOUNTED_COMMENT_STATUSES } from './community-shared';
 import { buildCommentTree, buildLabelMapFromComments } from './community-presenter';
@@ -114,9 +114,8 @@ export async function createPost(
   data: { title: string; content?: string; poll?: object; imageUrls?: string[] },
 ) {
   // 1차 필터: 로컬 금칙어 사전에 걸리면 작성 자체를 거부한다.
-  if (containsProfanity(data.title) || containsProfanity(data.content)) {
-    return { error: 'profanity_blocked' as const };
-  }
+  const profanity = checkProfanityFields({ title: data.title, content: data.content });
+  if (profanity) return { error: 'profanity_blocked' as const, details: profanity };
 
   let poll: PollDefinition | undefined;
   if (data.poll !== undefined) {
@@ -152,9 +151,8 @@ export async function updatePost(
   userId: string,
   data: { title?: string; content?: string; imageUrls?: string[]; poll?: object },
 ) {
-  if (containsProfanity(data.title) || containsProfanity(data.content)) {
-    return { error: 'profanity_blocked' as const };
-  }
+  const profanity = checkProfanityFields({ title: data.title, content: data.content });
+  if (profanity) return { error: 'profanity_blocked' as const, details: profanity };
 
   const result = await runCommunitySerializableTransaction(
     (operation, options) => prisma.$transaction(operation, options),

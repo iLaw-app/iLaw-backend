@@ -32,6 +32,8 @@ tags:
     description: 홈 (인기 콘텐츠)
   - name: Upload
     description: 이미지 업로드
+  - name: Moderation
+    description: 금칙어 사전 검사 (입력 중 표시용)
   - name: System
 
 security:
@@ -483,7 +485,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/QnAPost' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /qna/search:
     get:
@@ -628,7 +630,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/QnAAnswer' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
           description: 변호사 권한 필요
@@ -661,7 +663,7 @@ paths:
               schema:
                 type: object
                 properties: { success: { type: boolean, example: true } }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -714,7 +716,7 @@ paths:
                   id: { type: integer }
                   title: { type: string }
                   createdAt: { type: string, format: date-time }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
   /community/search:
     get:
@@ -824,7 +826,7 @@ paths:
                   imageUrls: { type: array, items: { type: string } }
                   poll: { $ref: '#/components/schemas/PollInput' }
                   updatedAt: { type: string, format: date-time }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -963,7 +965,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CommentNode' }
-        '400': { $ref: '#/components/responses/BadRequest' }
+        '400': { $ref: '#/components/responses/BadRequestOrProfanity' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /community/{id}/comments/{commentId}/like:
@@ -1173,6 +1175,43 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  # ─────────────────────────── MODERATION ───────────────────────────
+  /moderation/check:
+    post:
+      tags: [Moderation]
+      summary: 금칙어 사전 검사
+      description: |
+        게시글/댓글/질문 등록 시 적용되는 1차 금칙어 필터와 동일한 로직으로 필드별 금칙어 위치를 돌려준다.
+        프론트가 입력 중 디바운스로 호출해 어떤 표현이 걸리는지 입력창에서 미리 표시하는 용도.
+        IP당 분당 600회 제한(초과 시 429, 전역 한도와 별개). 인증 불필요.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fields]
+              properties:
+                fields:
+                  type: object
+                  description: 필드 이름 → 검사할 문자열 (최대 10개, 각 20,000자)
+                  additionalProperties: { type: string }
+              example: { fields: { title: '제목', content: '이거 진짜 ㅅㅂ 짜증' } }
+      responses:
+        '200':
+          description: 검사 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  blocked: { type: boolean, description: 하나라도 걸리면 true }
+                  fields: { $ref: '#/components/schemas/ProfanityFields' }
+              example: { blocked: true, fields: { content: [{ word: 'ㅅㅂ', start: 6, end: 8 }] } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1211,6 +1250,19 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: 요청 한도 초과
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequestOrProfanity:
+      description: "잘못된 요청. 금칙어가 포함된 경우 code=profanity_blocked 와 필드별 위치(fields)가 함께 온다."
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/Error'
+              - $ref: '#/components/schemas/ProfanityBlocked'
     Unauthorized:
       description: 인증 실패
       content:
@@ -1245,6 +1297,26 @@ components:
       type: object
       properties:
         message: { type: string }
+    ProfanityMatch:
+      type: object
+      description: 원문(UTF-16 오프셋) 기준 금칙어 구간. `word == text.slice(start, end)`
+      properties:
+        word: { type: string, example: 시-발 }
+        start: { type: integer, example: 3 }
+        end: { type: integer, example: 6 }
+    ProfanityFields:
+      type: object
+      description: 걸린 필드만 포함 (title, content 등)
+      additionalProperties:
+        type: array
+        items: { $ref: '#/components/schemas/ProfanityMatch' }
+    ProfanityBlocked:
+      type: object
+      description: 금칙어 차단 응답 (게시글·댓글·질문·답변 등록/수정 시 400)
+      properties:
+        message: { type: string, example: 부적절한 표현이 포함되어 있어 등록할 수 없습니다. }
+        code: { type: string, enum: [profanity_blocked] }
+        fields: { $ref: '#/components/schemas/ProfanityFields' }
 
     TokenResponse:
       type: object

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { parseId, requireId, requirePagination, setPaginationHeaders } from '../utils/http';
+import { parseId, requireId, requirePagination, sendServiceError, setPaginationHeaders, profanityDetails } from '../utils/http';
+import { checkProfanityFields } from '../services/profanity';
 import { listQAPosts, listUserQAPosts, getQAPostDetail, getQAPostAnswerState, createQAPost, createQAAnswer, searchQAPosts, listLawyerAnswers, deleteQAPost, updateQAAnswer } from '../services/qa.service';
 import { toggleQAScrap, getQAScrapStatus, getUserQAScraps } from '../services/scrap.service';
 import { createNotificationsForLawyers } from '../services/notification.service';
@@ -41,6 +42,8 @@ export async function updateAnswer(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }
+  const profanity = checkProfanityFields({ content: parsed.data.content });
+  if (profanity) { sendServiceError(res, 'profanity_blocked', {}, profanityDetails(profanity)); return; }
   const updated = await updateQAAnswer(postId, req.userId!, parsed.data.content);
   if (!updated) { res.status(403).json({ message: 'Forbidden or not found' }); return; }
   res.json({ success: true });
@@ -77,6 +80,9 @@ export async function createPost(req: AuthRequest, res: Response) {
     return;
   }
   const { title, content, category, imageUrls } = parsed.data;
+  // 1차 필터: 로컬 금칙어 사전에 걸리면 질문 등록 자체를 거부한다.
+  const profanity = checkProfanityFields({ title, content });
+  if (profanity) { sendServiceError(res, 'profanity_blocked', {}, profanityDetails(profanity)); return; }
   const post = await createQAPost(req.userId!, title, content, category, imageUrls);
   createNotificationsForLawyers('new_question', '새로운 질문이 등록됐습니다!', title, post.id)
     .catch((error: unknown) => logger.error({
@@ -113,6 +119,8 @@ export async function createAnswer(req: AuthRequest, res: Response) {
     res.status(400).json({ message: 'postId and content are required' });
     return;
   }
+  const profanity = checkProfanityFields({ content: parsed.data.content });
+  if (profanity) { sendServiceError(res, 'profanity_blocked', {}, profanityDetails(profanity)); return; }
   const existing = await getQAPostAnswerState(postId);
   if (!existing) { res.status(404).json({ message: 'Post not found' }); return; }
   if (existing.answer) { res.status(409).json({ message: 'Already answered' }); return; }

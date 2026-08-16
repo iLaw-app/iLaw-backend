@@ -11,6 +11,7 @@ import notificationsRouter from './routes/notifications';
 import communityRouter from './routes/community';
 import aiRouter from './routes/ai';
 import homeRouter from './routes/home';
+import moderationRouter from './routes/moderation';
 import { errorHandler } from './middlewares/errorHandler';
 import prisma from './prisma/client';
 import { createHealthRouter } from './health';
@@ -22,12 +23,17 @@ const app = express();
 
 configureAuthPassport();
 
+const corsOptions = buildCorsOptions();
+
 app.set('trust proxy', trustedProxy);
 app.use(requestId);
 app.use(accessLogger());
 app.use('/health', createHealthRouter(prisma));
+// 금칙어 사전 검사는 입력 중 디바운스로 반복 호출되므로 전역 한도를 소모하지 않게 자체 리미터로 분리한다.
+// (학교처럼 IP를 공유하는 환경에서 글 하나 쓰다가 전체 API가 429로 막히는 일을 피한다.)
+app.use('/moderation', cors(corsOptions), express.json(), moderationRouter);
 app.use(globalRateLimiter.middleware);
-app.use(cors(buildCorsOptions()));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(passport.initialize());
 

@@ -76,7 +76,10 @@ describe('작성 시 하드블록 + 게시 후 비동기 검열', () => {
   it('금칙어 댓글은 저장하지 않고 profanity_blocked를 반환한다', async () => {
     const result = await communityService.createComment(1, 'user-1', '시발 뭐야');
 
-    expect(result).toEqual({ error: 'profanity_blocked' });
+    expect(result).toEqual({
+      error: 'profanity_blocked',
+      details: { content: [{ word: '시발', start: 0, end: 2 }] },
+    });
     expect(prismaMock.communityComment.create).not.toHaveBeenCalled();
     expect(moderateAndBlind).not.toHaveBeenCalled();
   });
@@ -100,7 +103,10 @@ describe('작성 시 하드블록 + 게시 후 비동기 검열', () => {
   it('금칙어 게시글도 저장 없이 차단한다', async () => {
     const result = await communityService.createPost('user-1', { title: '개새끼', content: '내용' });
 
-    expect(result).toEqual({ error: 'profanity_blocked' });
+    expect(result).toEqual({
+      error: 'profanity_blocked',
+      details: { title: [{ word: '개새끼', start: 0, end: 3 }] },
+    });
     expect(prismaMock.communityPost.create).not.toHaveBeenCalled();
   });
 
@@ -109,7 +115,10 @@ describe('작성 시 하드블록 + 게시 후 비동기 검열', () => {
 
     const result = await communityService.updatePost(1, 'user-1', { content: '시-발 수정' });
 
-    expect(result).toEqual({ error: 'profanity_blocked' });
+    expect(result).toEqual({
+      error: 'profanity_blocked',
+      details: { content: [{ word: '시-발', start: 0, end: 3 }] },
+    });
     expect(prismaMock.communityPost.update).not.toHaveBeenCalled();
     expect(moderateAndBlind).not.toHaveBeenCalled();
   });

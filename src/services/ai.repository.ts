@@ -17,6 +17,31 @@ export interface AiHistoryPage {
   cursor?: number;
 }
 
+export interface AiPageResult<T> {
+  data: T;
+  limit: number;
+  nextCursor?: string;
+}
+
+export class InvalidAiCursorError extends Error {
+  readonly status = 400;
+
+  constructor() {
+    super('invalid cursor');
+    this.name = 'InvalidAiCursorError';
+  }
+}
+
+function boundedPage<T extends { id: string | number }>(rows: T[], limit: number): AiPageResult<T[]> {
+  const hasNext = rows.length > limit;
+  const data = hasNext ? rows.slice(0, limit) : rows;
+  return {
+    data,
+    limit,
+    ...(hasNext ? { nextCursor: String(data[data.length - 1].id) } : {}),
+  };
+}
+
 export function findConversation(userId: string, conversationId: string) {
   return prisma.aiConversation.findFirst({
     where: { id: conversationId, userId },
@@ -38,8 +63,8 @@ export function loadChatContext(userId: string, conversationId?: string) {
       select: { nickname: true, region: true },
     }),
     prisma.aiChatHistory.findMany({
-      where: conversationId ? { conversationId } : { userId },
-      orderBy: { createdAt: 'desc' },
+      where: conversationId ? { conversationId, userId } : { userId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 5,
       select: { question: true, legalAdvice: true },
     }),
@@ -77,12 +102,27 @@ export function updateConversation(conversation: AiConversationSummary, result: 
   });
 }
 
-export function listHistory(userId: string, page: AiHistoryPage) {
-  return prisma.aiChatHistory.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'asc' },
-    take: page.limit,
-    ...(page.cursor === undefined ? {} : { cursor: { id: page.cursor }, skip: 1 }),
+export async function listHistory(userId: string, page: AiHistoryPage) {
+  const boundary = page.cursor === undefined
+    ? undefined
+    : await prisma.aiChatHistory.findFirst({
+      where: { id: page.cursor, userId },
+      select: { id: true, createdAt: true },
+    });
+  if (page.cursor !== undefined && !boundary) throw new InvalidAiCursorError();
+
+  const rows = await prisma.aiChatHistory.findMany({
+    where: {
+      userId,
+      ...(boundary ? {
+        OR: [
+          { createdAt: { gt: boundary.createdAt } },
+          { createdAt: boundary.createdAt, id: { gt: boundary.id } },
+        ],
+      } : {}),
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: page.limit + 1,
     select: {
       id: true,
       question: true,
@@ -92,14 +132,32 @@ export function listHistory(userId: string, page: AiHistoryPage) {
       createdAt: true,
     },
   });
+  return boundedPage(rows, page.limit);
 }
 
-export function listConversationSummaries(userId: string, page: AiListPage) {
-  return prisma.aiConversation.findMany({
-    where: { userId },
-    orderBy: { updatedAt: 'desc' },
-    take: page.limit,
-    ...(page.cursor === undefined ? {} : { cursor: { id: page.cursor }, skip: 1 }),
+export async function listConversationSummaries(userId: string, page: AiListPage) {
+  const boundary = page.cursor === undefined
+    ? undefined
+    : await prisma.aiConversation.findFirst({
+      where: { id: page.cursor, userId },
+      select: { id: true, updatedAt: true },
+    });
+  if (page.cursor !== undefined && !boundary) throw new InvalidAiCursorError();
+
+  // Live-order policy: updatedAt is resolved when each next-page request arrives.
+  // A conversation mutated between requests therefore moves according to its current ordering value.
+  const rows = await prisma.aiConversation.findMany({
+    where: {
+      userId,
+      ...(boundary ? {
+        OR: [
+          { updatedAt: { lt: boundary.updatedAt } },
+          { updatedAt: boundary.updatedAt, id: { lt: boundary.id } },
+        ],
+      } : {}),
+    },
+    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+    take: page.limit + 1,
     select: {
       id: true,
       title: true,
@@ -109,10 +167,11 @@ export function listConversationSummaries(userId: string, page: AiListPage) {
       updatedAt: true,
     },
   });
+  return boundedPage(rows, page.limit);
 }
 
-export function getConversationDetail(userId: string, conversationId: string, page: AiHistoryPage) {
-  return prisma.aiConversation.findFirst({
+export async function getConversationDetail(userId: string, conversationId: string, page: AiHistoryPage) {
+  const conversation = await prisma.aiConversation.findFirst({
     where: { id: conversationId, userId },
     select: {
       id: true,
@@ -121,20 +180,45 @@ export function getConversationDetail(userId: string, conversationId: string, pa
       lastStatus: true,
       createdAt: true,
       updatedAt: true,
-      messages: {
-        orderBy: { createdAt: 'asc' },
-        take: page.limit,
-        ...(page.cursor === undefined ? {} : { cursor: { id: page.cursor }, skip: 1 }),
-        select: {
-          id: true,
-          question: true,
-          situationSummary: true,
-          legalAdvice: true,
-          suggestions: true,
-          status: true,
-          createdAt: true,
-        },
-      },
     },
   });
+  if (!conversation) return null;
+
+  const boundary = page.cursor === undefined
+    ? undefined
+    : await prisma.aiChatHistory.findFirst({
+      where: { id: page.cursor, userId, conversationId },
+      select: { id: true, createdAt: true },
+    });
+  if (page.cursor !== undefined && !boundary) throw new InvalidAiCursorError();
+
+  const rows = await prisma.aiChatHistory.findMany({
+    where: {
+      userId,
+      conversationId,
+      ...(boundary ? {
+        OR: [
+          { createdAt: { gt: boundary.createdAt } },
+          { createdAt: boundary.createdAt, id: { gt: boundary.id } },
+        ],
+      } : {}),
+    },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: page.limit + 1,
+    select: {
+      id: true,
+      question: true,
+      situationSummary: true,
+      legalAdvice: true,
+      suggestions: true,
+      status: true,
+      createdAt: true,
+    },
+  });
+  const messages = boundedPage(rows, page.limit);
+  return {
+    data: { ...conversation, messages: messages.data },
+    limit: messages.limit,
+    ...(messages.nextCursor ? { nextCursor: messages.nextCursor } : {}),
+  };
 }

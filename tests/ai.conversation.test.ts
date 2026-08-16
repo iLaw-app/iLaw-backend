@@ -1,4 +1,5 @@
 import type { Express } from 'express';
+import { EventEmitter } from 'node:events';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,7 +11,7 @@ const loggerErrorMock = vi.hoisted(() => vi.fn());
 const prismaMock = vi.hoisted(() => ({
   user: { findUnique: vi.fn() },
   manualArticle: { findMany: vi.fn() },
-  aiChatHistory: { findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
+  aiChatHistory: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
   aiConversation: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   aiDailyUsage: { upsert: vi.fn(), updateMany: vi.fn() },
   agency: { findMany: vi.fn() },
@@ -87,6 +88,32 @@ beforeEach(() => {
 });
 
 describe('멀티턴 대화 스레드', () => {
+  it('deferred persistence는 response finish 전에는 시작하지 않고 finish 뒤 실패를 기록한다', async () => {
+    const { startAiBackgroundTasksAfterFinish } = await import('../src/controllers/ai.controller');
+    const response = new EventEmitter();
+    const start = vi.fn(() => Promise.reject(new Error('SQL SELECT secret request text')));
+
+    startAiBackgroundTasksAfterFinish(response, [{
+      start,
+      context: {
+        event: 'ai_history_persistence_failed',
+        requestId: 'deferred-request',
+        userId: 'convo-user',
+      },
+    }]);
+
+    expect(start).not.toHaveBeenCalled();
+    response.emit('finish');
+    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(loggerErrorMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'ai_history_persistence_failed',
+      requestId: 'deferred-request',
+      errorName: 'Error',
+      errorCategory: 'background_task_failure',
+    })));
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain('SQL SELECT secret request text');
+  });
+
   it('conversationId 없이 요청하면 새 대화를 만들고 되묻기를 반환한다', async () => {
     openAiCreateMock.mockResolvedValueOnce(
       routerResponse({
@@ -157,7 +184,7 @@ describe('멀티턴 대화 스레드', () => {
     expect(prismaMock.aiConversation.create).not.toHaveBeenCalled();
     // 전역이 아닌 해당 대화 스레드의 히스토리를 로드해야 한다.
     expect(prismaMock.aiChatHistory.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { conversationId: 'conv-1' } }),
+      expect.objectContaining({ where: { conversationId: 'conv-1', userId: 'convo-user' } }),
     );
   });
 
@@ -191,6 +218,55 @@ describe('멀티턴 대화 스레드', () => {
     expect(tooLong.status).toBe(400);
     expect(prismaMock.$transaction).not.toHaveBeenCalled();
     expect(openAiCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('AI 요청 실패의 운영 로그는 원본 오류/SQL/request text 없이 분류만 남긴다', async () => {
+    openAiCreateMock.mockRejectedValueOnce(new Error('SELECT secret FROM request_payload'));
+
+    const res = await request(app)
+      .post('/ai/chat')
+      .set('Authorization', authorization())
+      .set('x-request-id', 'ai-failure-request')
+      .send({ message: '민감한 요청 본문' });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ message: 'Internal server error', requestId: 'ai-failure-request' });
+    expect(loggerErrorMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'ai_request_failed',
+      requestId: 'ai-failure-request',
+      errorName: 'Error',
+      errorCategory: 'request_execution',
+    }));
+    const logs = JSON.stringify(loggerErrorMock.mock.calls);
+    expect(logs).not.toContain('SELECT secret');
+    expect(logs).not.toContain('민감한 요청 본문');
+    expect(logs).not.toContain('stack');
+  });
+
+  it('AI DB 조회 실패도 원본 SQL 없이 동일한 500 계약으로 변환한다', async () => {
+    prismaMock.aiConversation.findMany.mockRejectedValueOnce(
+      new Error('SELECT private_column FROM ai_conversations'),
+    );
+
+    const res = await request(app)
+      .get('/ai/conversations')
+      .set('Authorization', authorization())
+      .set('x-request-id', 'ai-db-failure-request');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({
+      message: 'Internal server error',
+      requestId: 'ai-db-failure-request',
+    });
+    expect(loggerErrorMock).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'ai_request_failed',
+      requestId: 'ai-db-failure-request',
+      errorName: 'Error',
+      errorCategory: 'request_execution',
+    }));
+    const logs = JSON.stringify(loggerErrorMock.mock.calls);
+    expect(logs).not.toContain('SELECT private_column');
+    expect(logs).not.toContain('stack');
   });
 
   it('응답 후 히스토리 저장 실패를 요청 문맥과 함께 기록하되 성공 응답을 유지한다', async () => {
@@ -243,7 +319,7 @@ describe('멀티턴 대화 스레드', () => {
     });
   });
 
-  it('GET /ai/conversations 로 대화 목록을 최근순으로 반환한다', async () => {
+  it('GET /ai/conversations 로 대화 목록을 안정적인 최근순으로 반환한다', async () => {
     prismaMock.aiConversation.findMany.mockResolvedValue([
       { id: 'conv-1', title: '임금 체불', status: 'open', lastStatus: 'relevant', createdAt: new Date(0), updatedAt: new Date(0) },
     ]);
@@ -253,23 +329,58 @@ describe('멀티턴 대화 스레드', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].id).toBe('conv-1');
+    expect(res.headers['x-pagination-limit']).toBe('20');
+    expect(res.headers['x-next-cursor']).toBeUndefined();
     expect(prismaMock.aiConversation.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ orderBy: { updatedAt: 'desc' }, take: 20 }),
+      expect.objectContaining({ orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: 21 }),
     );
   });
 
-  it('대화 목록 limit/cursor를 검증하고 Prisma 조회를 100개 이하로 제한한다', async () => {
+  it('대화 목록 cursor 소유권과 현재 updatedAt 경계를 조회해 keyset 페이지와 헤더를 반환한다', async () => {
+    const boundary = new Date('2026-01-02T03:04:05.000Z');
+    prismaMock.aiConversation.findFirst.mockResolvedValueOnce({ id: 'conv-before', updatedAt: boundary });
+    prismaMock.aiConversation.findMany.mockResolvedValueOnce([
+      { id: 'conv-3' }, { id: 'conv-2' }, { id: 'conv-extra' },
+    ]);
+
     const bounded = await request(app)
-      .get('/ai/conversations?limit=100&cursor=conv-before')
+      .get('/ai/conversations?limit=2&cursor=conv-before')
       .set('Authorization', authorization());
 
     expect(bounded.status).toBe(200);
+    expect(bounded.body).toEqual([{ id: 'conv-3' }, { id: 'conv-2' }]);
+    expect(bounded.headers['x-next-cursor']).toBe('conv-2');
+    expect(bounded.headers['x-pagination-limit']).toBe('2');
+    expect(bounded.headers['access-control-expose-headers']).toContain('X-Next-Cursor');
     expect(prismaMock.aiConversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      take: 100,
-      cursor: { id: 'conv-before' },
-      skip: 1,
+      take: 3,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      where: {
+        userId: 'convo-user',
+        OR: [
+          { updatedAt: { lt: boundary } },
+          { updatedAt: boundary, id: { lt: 'conv-before' } },
+        ],
+      },
     }));
+  });
 
+  it('타 사용자 및 존재하지 않는 대화 cursor에 동일한 오류를 반환한다', async () => {
+    prismaMock.aiConversation.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const foreign = await request(app)
+      .get('/ai/conversations?cursor=other-users-conversation')
+      .set('Authorization', authorization());
+    const missing = await request(app)
+      .get('/ai/conversations?cursor=missing')
+      .set('Authorization', authorization());
+
+    expect(foreign.status).toBe(400);
+    expect(missing.status).toBe(400);
+    expect(foreign.body).toEqual({ error: 'invalid cursor' });
+    expect(missing.body).toEqual(foreign.body);
+  });
+
+  it('대화 목록 limit을 검증한다', async () => {
     const oversized = await request(app)
       .get('/ai/conversations?limit=101')
       .set('Authorization', authorization());
@@ -281,20 +392,37 @@ describe('멀티턴 대화 스레드', () => {
     expect(repeated.status).toBe(400);
   });
 
-  it('히스토리 목록도 기본/요청 limit과 정수 cursor로 bounded query를 수행한다', async () => {
+  it('히스토리 cursor가 현재 사용자 소유인지 확인하고 createdAt/id keyset을 사용한다', async () => {
     const defaultPage = await request(app).get('/ai/history').set('Authorization', authorization());
     expect(defaultPage.status).toBe(200);
-    expect(prismaMock.aiChatHistory.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 20 }));
+    expect(prismaMock.aiChatHistory.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      take: 21,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }));
 
+    const boundary = new Date('2026-02-03T04:05:06.000Z');
+    prismaMock.aiChatHistory.findFirst.mockResolvedValueOnce({ id: 42, createdAt: boundary });
     const nextPage = await request(app)
       .get('/ai/history?limit=7&cursor=42')
       .set('Authorization', authorization());
     expect(nextPage.status).toBe(200);
     expect(prismaMock.aiChatHistory.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      take: 7,
-      cursor: { id: 42 },
-      skip: 1,
+      take: 8,
+      where: {
+        userId: 'convo-user',
+        OR: [
+          { createdAt: { gt: boundary } },
+          { createdAt: boundary, id: { gt: 42 } },
+        ],
+      },
     }));
+
+    prismaMock.aiChatHistory.findFirst.mockResolvedValueOnce(null);
+    const foreign = await request(app)
+      .get('/ai/history?cursor=99')
+      .set('Authorization', authorization());
+    expect(foreign.status).toBe(400);
+    expect(foreign.body).toEqual({ error: 'invalid cursor' });
 
     const invalidCursor = await request(app)
       .get('/ai/history?cursor=not-an-integer')
@@ -302,22 +430,64 @@ describe('멀티턴 대화 스레드', () => {
     expect(invalidCursor.status).toBe(400);
   });
 
-  it('대화 상세 메시지도 limit/cursor로 제한하고 잘못된 id를 거부한다', async () => {
-    prismaMock.aiConversation.findFirst.mockResolvedValue({ id: 'conv-1', messages: [] });
+  it('대화 상세 메시지 cursor는 해당 사용자와 대화 소유만 허용하고 안정적인 keyset을 사용한다', async () => {
+    const boundary = new Date('2026-03-04T05:06:07.000Z');
+    prismaMock.aiConversation.findFirst.mockResolvedValue({ id: 'conv-1', title: null });
+    prismaMock.aiChatHistory.findFirst.mockResolvedValueOnce({ id: 3, createdAt: boundary });
+    prismaMock.aiChatHistory.findMany.mockResolvedValueOnce([]);
     const page = await request(app)
       .get('/ai/conversations/conv-1?limit=9&cursor=3')
       .set('Authorization', authorization());
 
     expect(page.status).toBe(200);
-    expect(prismaMock.aiConversation.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({
-        messages: expect.objectContaining({ take: 9, cursor: { id: 3 }, skip: 1 }),
-      }),
+    expect(prismaMock.aiChatHistory.findFirst).toHaveBeenCalledWith({
+      where: { id: 3, userId: 'convo-user', conversationId: 'conv-1' },
+      select: { id: true, createdAt: true },
+    });
+    expect(prismaMock.aiChatHistory.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      take: 10,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      where: {
+        userId: 'convo-user',
+        conversationId: 'conv-1',
+        OR: [
+          { createdAt: { gt: boundary } },
+          { createdAt: boundary, id: { gt: 3 } },
+        ],
+      },
     }));
+
+    prismaMock.aiChatHistory.findFirst.mockResolvedValueOnce(null);
+    const foreignConversationCursor = await request(app)
+      .get('/ai/conversations/conv-1?cursor=4')
+      .set('Authorization', authorization());
+    expect(foreignConversationCursor.status).toBe(400);
+    expect(foreignConversationCursor.body).toEqual({ error: 'invalid cursor' });
 
     const invalidId = await request(app)
       .get(`/ai/conversations/${'c'.repeat(129)}`)
       .set('Authorization', authorization());
     expect(invalidId.status).toBe(400);
+  });
+
+  it('대화 cursor의 updatedAt이 변하면 조회 시점의 새 경계를 사용하는 live-order 정책을 따른다', async () => {
+    const mutatedBoundary = new Date('2026-04-05T06:07:08.000Z');
+    prismaMock.aiConversation.findFirst.mockResolvedValueOnce({
+      id: 'conv-moving',
+      updatedAt: mutatedBoundary,
+    });
+
+    await request(app)
+      .get('/ai/conversations?cursor=conv-moving')
+      .set('Authorization', authorization());
+
+    expect(prismaMock.aiConversation.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: [
+          { updatedAt: { lt: mutatedBoundary } },
+          { updatedAt: mutatedBoundary, id: { lt: 'conv-moving' } },
+        ],
+      }),
+    }));
   });
 });

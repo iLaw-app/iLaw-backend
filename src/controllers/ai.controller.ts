@@ -7,13 +7,61 @@ import {
   getHistory as getHistoryUseCase,
   listConversations as listConversationsUseCase,
 } from '../services/ai.use-case';
+import { InvalidAiCursorError, type AiPageResult } from '../services/ai.repository';
+import {
+  observeAiBackgroundTask,
+  type AiDeferredTask,
+} from '../services/ai.background';
+import { logger } from '../middlewares/logging';
+import { safeAiErrorFields } from '../services/ai.logging';
 
-function sendInputError(error: unknown, res: Response, next: NextFunction): void {
-  if (error instanceof AiInputError) {
+class AiRequestExecutionError extends Error {
+  constructor() {
+    super('AI request failed');
+    this.name = 'AiRequestExecutionError';
+    this.stack = undefined;
+  }
+}
+
+function sendInputError(
+  error: unknown,
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (error instanceof AiInputError || error instanceof InvalidAiCursorError) {
     res.status(error.status).json({ error: error.message });
     return;
   }
-  next(error);
+  logger.error({
+    event: 'ai_request_failed',
+    requestId: req.id,
+    ...safeAiErrorFields(error, 'request_execution'),
+  });
+  next(new AiRequestExecutionError());
+}
+
+const PAGINATION_EXPOSE_HEADERS = 'X-Next-Cursor, X-Pagination-Limit';
+
+function sendPage<T>(res: Response, page: AiPageResult<T>): void {
+  res.set('X-Pagination-Limit', String(page.limit));
+  res.set('Access-Control-Expose-Headers', PAGINATION_EXPOSE_HEADERS);
+  if (page.nextCursor !== undefined) res.set('X-Next-Cursor', page.nextCursor);
+  res.json(page.data);
+}
+
+interface FinishEmitter {
+  once(event: 'finish', listener: () => void): unknown;
+}
+
+export function startAiBackgroundTasksAfterFinish(
+  response: FinishEmitter,
+  tasks: AiDeferredTask[],
+): void {
+  if (tasks.length === 0) return;
+  response.once('finish', () => {
+    for (const task of tasks) observeAiBackgroundTask(task.start, task.context);
+  });
 }
 
 export async function chat(req: AuthRequest, res: Response, next: NextFunction) {
@@ -30,25 +78,26 @@ export async function chat(req: AuthRequest, res: Response, next: NextFunction) 
       return;
     }
     res.set('Cache-Control', 'no-store');
+    startAiBackgroundTasksAfterFinish(res, result.backgroundTasks);
     res.json(result.body);
   } catch (error) {
-    sendInputError(error, res, next);
+    sendInputError(error, req, res, next);
   }
 }
 
 export async function getHistory(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    res.json(await getHistoryUseCase(req.userId!, req.query));
+    sendPage(res, await getHistoryUseCase(req.userId!, req.query));
   } catch (error) {
-    sendInputError(error, res, next);
+    sendInputError(error, req, res, next);
   }
 }
 
 export async function listConversations(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    res.json(await listConversationsUseCase(req.userId!, req.query));
+    sendPage(res, await listConversationsUseCase(req.userId!, req.query));
   } catch (error) {
-    sendInputError(error, res, next);
+    sendInputError(error, req, res, next);
   }
 }
 
@@ -59,8 +108,8 @@ export async function getConversation(req: AuthRequest, res: Response, next: Nex
       res.status(404).json({ error: 'conversation not found' });
       return;
     }
-    res.json(conversation);
+    sendPage(res, conversation);
   } catch (error) {
-    sendInputError(error, res, next);
+    sendInputError(error, req, res, next);
   }
 }

@@ -1,4 +1,5 @@
 import { logger, type StructuredLogger } from '../middlewares/logging';
+import { safeAiErrorFields } from './ai.logging';
 
 export interface AiBackgroundContext {
   event: string;
@@ -8,19 +9,19 @@ export interface AiBackgroundContext {
   diagnosisStatus?: string;
 }
 
-function errorFields(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    return { error: error.message, stack: error.stack };
-  }
-  return { error: String(error) };
+export interface AiDeferredTask {
+  start: () => Promise<unknown>;
+  context: AiBackgroundContext;
 }
 
 export function observeAiBackgroundTask(
-  task: Promise<unknown>,
+  start: () => Promise<unknown>,
   context: AiBackgroundContext,
   output: Pick<StructuredLogger, 'error'> = logger,
 ): void {
-  void task.catch((error: unknown) => {
-    output.error({ ...context, ...errorFields(error) });
-  });
+  void Promise.resolve()
+    .then(start)
+    .catch((error: unknown) => {
+      output.error({ ...context, ...safeAiErrorFields(error, 'background_task_failure') });
+    });
 }

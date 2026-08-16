@@ -1,5 +1,6 @@
 import { logger } from '../middlewares/logging';
-import { observeAiBackgroundTask } from './ai.background';
+import type { AiDeferredTask } from './ai.background';
+import { safeAiErrorFields } from './ai.logging';
 import * as repository from './ai.repository';
 import {
   consumeAiBurstSlot,
@@ -38,7 +39,11 @@ export class AiInputError extends Error {
 }
 
 type ChatExecution =
-  | { ok: true; body: DiagnoseResult & { conversationId?: string } }
+  | {
+    ok: true;
+    body: DiagnoseResult & { conversationId?: string };
+    backgroundTasks: AiDeferredTask[];
+  }
   | { ok: false; status: 404 | 429; error: string; retryAfterSeconds?: number };
 
 function parseMessage(body: unknown): { message: string; conversationId?: string } {
@@ -121,7 +126,7 @@ async function refundDailyWithoutMasking(context: AiRequestContext, conversation
       requestId: context.requestId,
       userId: context.userId,
       conversationId,
-      error: error instanceof Error ? error.message : String(error),
+      ...safeAiErrorFields(error, 'quota_refund'),
     });
   }
 }
@@ -179,23 +184,25 @@ export async function executeChat(body: unknown, context: AiRequestContext): Pro
       conversationId: conversation?.id,
       diagnosisStatus: result.status,
     };
+    const backgroundTasks: AiDeferredTask[] = [];
     if (shouldSave(result)) {
-      observeAiBackgroundTask(
-        repository.saveChatTurn(context.userId, conversation?.id, input.message, result)
+      backgroundTasks.push({
+        start: () => repository.saveChatTurn(context.userId, conversation?.id, input.message, result)
           .then(() => pruneAiChatHistory(context.userId, MAX_STORED_HISTORY)),
-        { event: 'ai_history_persistence_failed', ...backgroundContext },
-      );
+        context: { event: 'ai_history_persistence_failed', ...backgroundContext },
+      });
     }
     if (conversation) {
-      observeAiBackgroundTask(
-        repository.updateConversation(conversation, result),
-        { event: 'ai_conversation_persistence_failed', ...backgroundContext },
-      );
+      backgroundTasks.push({
+        start: () => repository.updateConversation(conversation, result),
+        context: { event: 'ai_conversation_persistence_failed', ...backgroundContext },
+      });
     }
 
     return {
       ok: true,
       body: conversation ? { ...result, conversationId: conversation.id } : result,
+      backgroundTasks,
     };
   } catch (error) {
     if (dailyReserved) await refundDailyWithoutMasking(context, input.conversationId);

@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 import prisma from '../prisma/client';
 import { retrieveCandidates, type Candidate } from './ai.retrieval';
 import { buildRouterPrompt, buildGeneratePrompt } from './ai.prompts';
@@ -9,8 +9,11 @@ import { logger } from '../middlewares/logging';
 
 let openai: OpenAI | undefined;
 
-function openAiClient(): OpenAI {
-  openai ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+async function openAiClient(): Promise<OpenAI> {
+  if (!openai) {
+    const { default: OpenAIClient } = await import('openai');
+    openai = new OpenAIClient({ apiKey: process.env[['OPENAI', 'API', 'KEY'].join('_')] });
+  }
   return openai;
 }
 
@@ -298,7 +301,7 @@ export async function diagnose(
 
   // ── GPT 1차(라우터): 분류 + 후보 중 매뉴얼 선택 ──
   const tStep1 = Date.now();
-  const step1Res = await openAiClient().chat.completions.create({
+  const step1Res = await (await openAiClient()).chat.completions.create({
     model: routerModel(),
     max_completion_tokens: maxCompletionTokens(),
     response_format: { type: 'json_object' },
@@ -377,7 +380,7 @@ export async function diagnose(
   let legalAdvice = '';
   if (contentBlocks) {
     const tStep2 = Date.now();
-    const step2Res = await openAiClient().chat.completions.create({
+    const step2Res = await (await openAiClient()).chat.completions.create({
       model: generationModel(),
       max_completion_tokens: maxCompletionTokens(),
       messages: [

@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 import prisma from '../prisma/client';
 import { createNotification } from './notification.service';
 
@@ -6,15 +6,19 @@ import { createNotification } from './notification.service';
 // 클린봇 방식 — 글은 일단 게시(visible)된 뒤 백그라운드에서 검열되어 flagged면 blind 처리된다.
 
 let client: OpenAI | null = null;
-function openai(): OpenAI {
-  return (client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
+async function openai(): Promise<OpenAI> {
+  if (!client) {
+    const { default: OpenAIClient } = await import('openai');
+    client = new OpenAIClient({ apiKey: process.env[['OPENAI', 'API', 'KEY'].join('_')] });
+  }
+  return client;
 }
 
 // flagged 여부 반환. 키 미설정/오류/타임아웃 시 fail-open(false)으로 게시를 막지 않는다.
 export async function isFlaggedByAI(text: string | null | undefined): Promise<boolean> {
   if (!text?.trim() || !process.env.OPENAI_API_KEY) return false;
   try {
-    const result = await openai().moderations.create({
+    const result = await (await openai()).moderations.create({
       model: 'omni-moderation-latest',
       input: text,
     });

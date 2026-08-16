@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import * as cheerio from 'cheerio';
-import OpenAI from 'openai';
+import type OpenAI from 'openai';
 
 // OpenAI 임베딩 유틸. text-embedding-3-small(1536d)로 매뉴얼/질의를 벡터화한다.
 // pgvector 하이브리드 검색(ai.retrieval)과 백필 스크립트가 공유한다.
@@ -11,8 +11,12 @@ export const EMBED_DIM = 1536;
 // 클라이언트는 최초 임베딩 호출 시점에 생성한다(모듈 import만으로 API 키를
 // 요구하지 않도록 — 렉시컬 전용 경로/테스트에서 불필요한 생성을 피한다).
 let client: OpenAI | null = null;
-function openai(): OpenAI {
-  return (client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
+async function openai(): Promise<OpenAI> {
+  if (!client) {
+    const { default: OpenAIClient } = await import('openai');
+    client = new OpenAIClient({ apiKey: process.env[['OPENAI', 'API', 'KEY'].join('_')] });
+  }
+  return client;
 }
 
 // 임베딩 입력 텍스트: 제목 + 요약 + (HTML 태그 제거한) 본문.
@@ -27,7 +31,7 @@ export function embedInputHash(input: string): string {
 }
 
 export async function embedText(input: string): Promise<number[]> {
-  const res = await openai().embeddings.create({ model: EMBED_MODEL, input });
+  const res = await (await openai()).embeddings.create({ model: EMBED_MODEL, input });
   return res.data[0].embedding;
 }
 

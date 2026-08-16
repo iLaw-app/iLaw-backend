@@ -31,7 +31,6 @@ model User {
   role             String  @default("user")
   affiliation      String?
 
-  refreshToken String?
   createdAt    DateTime @default(now())
 
   qnaPosts          QnAPost[]
@@ -51,8 +50,24 @@ model User {
   aiConversations              AiConversation[]
   aiDailyUsages                AiDailyUsage[]
   oauthLoginCodes              OAuthLoginCode[]
+  refreshTokenSessions         RefreshTokenSession[]
 
   @@unique([provider, providerId])
+}
+
+model RefreshTokenSession {
+  tokenHash String   @id
+  jti       String   @unique
+  familyId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
 }
 
 model OAuthTransaction {

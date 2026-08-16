@@ -32,6 +32,9 @@ const prismaMock = vi.hoisted(() => ({
     create: vi.fn(),
     deleteMany: vi.fn(),
   },
+  refreshTokenSession: {
+    create: vi.fn(),
+  },
   $transaction: vi.fn(),
 }));
 
@@ -46,8 +49,8 @@ let app: Express;
 
 beforeAll(async () => {
   process.env.NODE_ENV = 'test';
-  process.env.JWT_ACCESS_SECRET = 'oauth-access-secret';
-  process.env.JWT_REFRESH_SECRET = 'oauth-refresh-secret';
+  process.env.JWT_ACCESS_SECRET = 'oauth-access-secret-at-least-32-bytes-long';
+  process.env.JWT_REFRESH_SECRET = 'oauth-refresh-secret-at-least-32-bytes-long';
   process.env.OAUTH_STATE_SECRET = 'oauth-state-secret-with-enough-entropy';
   process.env.OAUTH_WEB_REDIRECT_URI = 'https://frontend.test/auth';
   process.env.OAUTH_LOCAL_REDIRECT_URI = 'http://localhost:5173/auth';
@@ -69,6 +72,7 @@ beforeEach(() => {
   prismaMock.oAuthLoginCode.updateMany.mockResolvedValue({ count: 1 });
   prismaMock.oAuthTransaction.create.mockResolvedValue({ nonceHash: 'stored-state' });
   prismaMock.oAuthTransaction.deleteMany.mockResolvedValue({ count: 1 });
+  prismaMock.refreshTokenSession.create.mockResolvedValue({ tokenHash: 'stored-refresh-hash' });
   prismaMock.user.findUnique.mockResolvedValue({ id: 'oauth-user', profileCompleted: false });
   prismaMock.user.update.mockResolvedValue({ id: 'oauth-user' });
   prismaMock.$transaction.mockImplementation(async (operation: (client: typeof prismaMock) => Promise<unknown>) => operation(prismaMock));
@@ -200,7 +204,8 @@ describe('OAuth 일회용 code 교환', () => {
       profileCompleted: false,
     });
     expect(prismaMock.oAuthLoginCode.updateMany).toHaveBeenCalledOnce();
-    expect(prismaMock.user.update).toHaveBeenCalledOnce();
+    expect(prismaMock.refreshTokenSession.create).toHaveBeenCalledOnce();
+    expect(JSON.stringify(prismaMock.refreshTokenSession.create.mock.calls[0][0])).not.toContain(response.body.refreshToken);
   });
 
   it('code가 누락되면 400을 반환한다', async () => {
@@ -222,7 +227,7 @@ describe('OAuth 일회용 code 교환', () => {
       .send({ code: 'expired-code' });
 
     expect(response.status).toBe(401);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(prismaMock.refreshTokenSession.create).not.toHaveBeenCalled();
   });
 
   it('이미 사용된 code를 거부한다', async () => {
@@ -233,6 +238,6 @@ describe('OAuth 일회용 code 교환', () => {
       .send({ code: 'reused-code' });
 
     expect(response.status).toBe(401);
-    expect(prismaMock.user.update).not.toHaveBeenCalled();
+    expect(prismaMock.refreshTokenSession.create).not.toHaveBeenCalled();
   });
 });

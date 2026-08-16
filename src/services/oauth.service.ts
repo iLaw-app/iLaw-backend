@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import prisma from '../prisma/client';
-import { generateAccessToken, generateRefreshToken } from './auth.service';
+import { issueTokenPair } from './auth.service';
 
 export type OAuthProvider = 'kakao' | 'google';
 export type OAuthTarget = 'web' | 'local';
@@ -216,12 +216,7 @@ export async function exchangeOAuthLoginCode(code: string) {
     });
     if (!user) return null;
 
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
-    await transaction.user.update({
-      where: { id: user.id },
-      data: { refreshToken },
-    });
+    const { accessToken, refreshToken } = await issueTokenPair(user.id, transaction);
 
     return { accessToken, refreshToken, profileCompleted: user.profileCompleted };
   });

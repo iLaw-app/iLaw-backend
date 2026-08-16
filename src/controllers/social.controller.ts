@@ -1,18 +1,30 @@
-import { Request, Response } from 'express';
-import axios from 'axios';
-import { OAuth2Client } from 'google-auth-library';
-import { upsertUser, generateAccessToken, generateRefreshToken, saveRefreshToken } from '../services/auth.service';
-
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+import { NextFunction, Request, Response } from 'express';
+import { issueTokenPair, upsertUser } from '../services/auth.service';
+import {
+  OAuthCredentialError,
+  OAuthProviderUnavailableError,
+  verifyGoogleIdToken,
+  verifyKakaoAccessToken,
+} from '../services/oauth-provider.service';
 
 async function issueTokens(userId: string, profileCompleted: boolean, res: Response) {
-  const accessToken = generateAccessToken(userId);
-  const refreshToken = generateRefreshToken(userId);
-  await saveRefreshToken(userId, refreshToken);
-  res.json({ accessToken, refreshToken, profileCompleted });
+  const tokens = await issueTokenPair(userId);
+  res.json({ ...tokens, profileCompleted });
 }
 
-export async function kakaoSdkLogin(req: Request, res: Response) {
+function handleProviderError(error: unknown, invalidMessage: string, res: Response, next: NextFunction) {
+  if (error instanceof OAuthCredentialError) {
+    res.status(401).json({ message: invalidMessage });
+    return;
+  }
+  if (error instanceof OAuthProviderUnavailableError) {
+    res.status(503).json({ message: 'OAuth provider temporarily unavailable' });
+    return;
+  }
+  next(error);
+}
+
+export async function kakaoSdkLogin(req: Request, res: Response, next: NextFunction) {
   const { accessToken } = req.body as { accessToken?: string };
   if (!accessToken) {
     res.status(400).json({ message: 'accessToken is required' });
@@ -20,20 +32,15 @@ export async function kakaoSdkLogin(req: Request, res: Response) {
   }
 
   try {
-    const { data } = await axios.get('https://kapi.kakao.com/v2/user/me', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    const providerId = String(data.id);
-    const email = data.kakao_account?.email;
-    const user = await upsertUser('kakao', providerId, email);
+    const identity = await verifyKakaoAccessToken(accessToken);
+    const user = await upsertUser('kakao', identity.providerId, identity.email);
     await issueTokens(user.id, user.profileCompleted, res);
-  } catch {
-    res.status(401).json({ message: 'Invalid Kakao access token' });
+  } catch (error) {
+    handleProviderError(error, 'Invalid Kakao access token', res, next);
   }
 }
 
-export async function googleSdkLogin(req: Request, res: Response) {
+export async function googleSdkLogin(req: Request, res: Response, next: NextFunction) {
   const { idToken } = req.body as { idToken?: string };
   if (!idToken) {
     res.status(400).json({ message: 'idToken is required' });
@@ -41,15 +48,10 @@ export async function googleSdkLogin(req: Request, res: Response) {
   }
 
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-    const payload = ticket.getPayload()!;
-
-    const user = await upsertUser('google', payload.sub, payload.email);
+    const identity = await verifyGoogleIdToken(idToken);
+    const user = await upsertUser('google', identity.providerId, identity.email);
     await issueTokens(user.id, user.profileCompleted, res);
-  } catch {
-    res.status(401).json({ message: 'Invalid Google id token' });
+  } catch (error) {
+    handleProviderError(error, 'Invalid Google id token', res, next);
   }
 }

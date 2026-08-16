@@ -28,6 +28,18 @@ export function validateEnv(): void {
     process.exit(1);
   }
 
+  const accessSecret = process.env.JWT_ACCESS_SECRET;
+  const refreshSecret = process.env.JWT_REFRESH_SECRET;
+  const invalidJwtSecrets = [
+    accessSecret && Buffer.byteLength(accessSecret, 'utf8') < 32 ? 'JWT_ACCESS_SECRET must be at least 32 bytes' : null,
+    refreshSecret && Buffer.byteLength(refreshSecret, 'utf8') < 32 ? 'JWT_REFRESH_SECRET must be at least 32 bytes' : null,
+    accessSecret && refreshSecret && accessSecret === refreshSecret ? 'JWT access and refresh secrets must be different' : null,
+  ].filter((message): message is string => Boolean(message));
+  if (invalidJwtSecrets.length > 0) {
+    console.error(`[env] Invalid JWT configuration: ${invalidJwtSecrets.join('; ')}`);
+    process.exit(1);
+  }
+
   for (const { feature, vars } of FEATURE_GROUPS) {
     const missing = vars.filter((key) => !process.env[key]);
     if (missing.length > 0) {

@@ -77,45 +77,57 @@ function oauthCallback(provider: OAuthProvider) {
   };
 }
 
-if (process.env.KAKAO_CLIENT_ID) {
-  passport.use(
-    new KakaoStrategy(
-      {
-        clientID: process.env.KAKAO_CLIENT_ID,
-        clientSecret: process.env.KAKAO_CLIENT_SECRET,
-        callbackURL: process.env.KAKAO_CALLBACK_URL!,
-      },
-      async (_accessToken, _refreshToken, profile, done) => {
-        try {
-          const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email);
-          done(null, user);
-        } catch (err) {
-          done(err);
-        }
-      }
-    )
-  );
-}
+type PassportConfigurator = Pick<typeof passport, 'use'>;
+const configuredPassportInstances = new WeakSet<object>();
 
-if (process.env.GOOGLE_CLIENT_ID) {
-  passport.use(
-    new GoogleStrategy(
-      {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        callbackURL: process.env.GOOGLE_CALLBACK_URL!,
-      },
-      async (_accessToken, _refreshToken, profile, done) => {
-        try {
-          const email = profile.emails?.[0]?.value;
-          const user = await upsertUser('google', profile.id, email);
-          done(null, user);
-        } catch (err) {
-          done(err);
-        }
-      }
-    )
-  );
+/**
+ * Register OAuth strategies explicitly from the application bootstrap.
+ * Importing this route module never mutates Passport's global strategy registry.
+ */
+export function configureAuthPassport(passportInstance: PassportConfigurator = passport) {
+  if (configuredPassportInstances.has(passportInstance)) return;
+
+  if (process.env.KAKAO_CLIENT_ID) {
+    passportInstance.use(
+      new KakaoStrategy(
+        {
+          clientID: process.env.KAKAO_CLIENT_ID,
+          clientSecret: process.env.KAKAO_CLIENT_SECRET,
+          callbackURL: process.env.KAKAO_CALLBACK_URL!,
+        },
+        async (_accessToken, _refreshToken, profile, done) => {
+          try {
+            const user = await upsertUser('kakao', String(profile.id), profile._json?.kakao_account?.email);
+            done(null, user);
+          } catch (error) {
+            done(error);
+          }
+        },
+      ),
+    );
+  }
+
+  if (process.env.GOOGLE_CLIENT_ID) {
+    passportInstance.use(
+      new GoogleStrategy(
+        {
+          clientID: process.env.GOOGLE_CLIENT_ID,
+          clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+          callbackURL: process.env.GOOGLE_CALLBACK_URL!,
+        },
+        async (_accessToken, _refreshToken, profile, done) => {
+          try {
+            const user = await upsertUser('google', profile.id, profile.emails?.[0]?.value);
+            done(null, user);
+          } catch (error) {
+            done(error);
+          }
+        },
+      ),
+    );
+  }
+
+  configuredPassportInstances.add(passportInstance);
 }
 
 router.get('/kakao', oauthStart('kakao'));

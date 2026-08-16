@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verifyAccessToken } from '../services/auth.service';
 
 export type AuthRequest = Request & { userId?: string };
 
@@ -12,7 +12,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
 
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { userId: string };
+    const payload = verifyAccessToken(token);
     req.userId = payload.userId;
     next();
   } catch {
@@ -29,7 +29,7 @@ export function optionalAuthenticate(req: AuthRequest, _res: Response, next: Nex
 
   const token = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { userId: string };
+    const payload = verifyAccessToken(token);
     req.userId = payload.userId;
   } catch {
     // Public community reads should still work when a saved token is stale.

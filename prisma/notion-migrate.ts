@@ -5,6 +5,7 @@ import * as cheerio from 'cheerio';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { PrismaClient } from '@prisma/client';
 import { printScriptMode, resolveScriptMode } from './script-safety';
+import { planArticleSync } from './article-sync';
 import { buildPublicObjectUrl } from '../src/utils/storage-url';
 
 const prisma = new PrismaClient();
@@ -136,16 +137,33 @@ async function main() {
   console.log(`Found ${htmlFiles.length} HTML files\n`);
 
   const invalidFiles: string[] = [];
+  // 재적재는 "카테고리 + question"으로 기존 행을 찾으므로 이 조합이 중복되면
+  // 한쪽이 매번 삭제/재생성되어 스크랩과 임베딩을 잃는다. 입력 단계에서 막는다.
+  const seenKeys = new Map<string, string>();
+  const duplicateKeys: string[] = [];
   for (const htmlFile of htmlFiles) {
     try {
       const parsed = await parseHtmlFile(htmlFile, false);
-      if (!parsed.question || !CATEGORY_CONFIG[parsed.categoryName]) invalidFiles.push(path.basename(htmlFile));
+      if (!parsed.question || !CATEGORY_CONFIG[parsed.categoryName]) {
+        invalidFiles.push(path.basename(htmlFile));
+        continue;
+      }
+      const key = `${parsed.categoryName} ${parsed.question}`;
+      const previous = seenKeys.get(key);
+      if (previous) {
+        duplicateKeys.push(`"${parsed.question}" (${parsed.categoryName}): ${previous} / ${path.basename(htmlFile)}`);
+      } else {
+        seenKeys.set(key, path.basename(htmlFile));
+      }
     } catch {
       invalidFiles.push(path.basename(htmlFile));
     }
   }
   if (invalidFiles.length > 0) {
     throw new Error(`Input validation failed: ${invalidFiles.join(', ')}`);
+  }
+  if (duplicateKeys.length > 0) {
+    throw new Error(`같은 카테고리에 제목이 중복됩니다:\n  ${duplicateKeys.join('\n  ')}`);
   }
   console.log(`Validated ${htmlFiles.length} input files.`);
   if (!mode.apply) return;
@@ -179,20 +197,47 @@ async function main() {
       rows.push({ id: category.id, name });
     }
 
-    await transaction.manualArticle.deleteMany({
+    // 재적재는 delete+create가 아니라 "같은 카테고리 + 같은 question"을 기준으로 맞춘다.
+    // 전부 지우고 다시 만들면 ManualArticle.id가 매번 바뀌는데, ArticleScrap이
+    // onDelete: Cascade라 사용자 스크랩이 통째로 사라지고 임베딩도 전부 재생성된다.
+    const existing = await transaction.manualArticle.findMany({
       where: { categoryId: { in: Object.values(categoryMap) } },
+      select: { id: true, categoryId: true, question: true },
     });
-    await transaction.manualArticle.createMany({
-      data: parsedArticles.map(({ categoryName, ...article }) => ({
+    const plan = planArticleSync(
+      existing,
+      parsedArticles.map(({ categoryName, ...article }) => ({
         ...article,
         categoryId: categoryMap[categoryName],
       })),
-    });
-    return rows;
+    );
+
+    for (const article of plan.toCreate) {
+      await transaction.manualArticle.create({ data: article });
+    }
+    for (const { id, article } of plan.toUpdate) {
+      await transaction.manualArticle.update({
+        where: { id },
+        data: { summary: article.summary, content: article.content, order: article.order },
+      });
+    }
+    if (plan.toDeleteIds.length > 0) {
+      await transaction.manualArticle.deleteMany({ where: { id: { in: plan.toDeleteIds } } });
+    }
+
+    return {
+      rows,
+      created: plan.toCreate.length,
+      updated: plan.toUpdate.length,
+      removed: plan.toDeleteIds.length,
+    };
   }, { timeout: 120_000 });
 
-  for (const category of categoryRows) console.log(`Category: ${category.name} (id=${category.id})`);
-  console.log(`Done: ${parsedArticles.length} succeeded`);
+  for (const category of categoryRows.rows) console.log(`Category: ${category.name} (id=${category.id})`);
+  console.log(`Done: ${parsedArticles.length} articles — 신규 ${categoryRows.created}, 갱신 ${categoryRows.updated}, 삭제 ${categoryRows.removed}`);
+  if (categoryRows.removed > 0) {
+    console.log(`  주의: 삭제된 ${categoryRows.removed}건에 달린 사용자 스크랩도 함께 제거되었습니다.`);
+  }
 }
 
 main()

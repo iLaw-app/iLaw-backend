@@ -57,6 +57,30 @@ async function withTimeout<T>(operation: Promise<T>): Promise<T> {
   }
 }
 
+const GOOGLE_PROVIDER_NETWORK_ERROR_CODES = new Set([
+  'ENOTFOUND',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'ETIMEDOUT',
+]);
+
+type GoogleProviderError = {
+  code?: unknown;
+  response?: { status?: unknown };
+};
+
+function isGoogleProviderUnavailableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+
+  const providerError = error as GoogleProviderError;
+  if (typeof providerError.code === 'string' && GOOGLE_PROVIDER_NETWORK_ERROR_CODES.has(providerError.code)) {
+    return true;
+  }
+
+  const status = providerError.response?.status;
+  return typeof status === 'number' && status >= 500 && status < 600;
+}
+
 export async function verifyGoogleIdToken(
   idToken: string,
   client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID),
@@ -71,6 +95,9 @@ export async function verifyGoogleIdToken(
     return { providerId: payload.sub, email: payload.email };
   } catch (error) {
     if (error instanceof OAuthProviderUnavailableError || error instanceof OAuthCredentialError) throw error;
+    if (isGoogleProviderUnavailableError(error)) {
+      throw new OAuthProviderUnavailableError('Google login provider is unavailable');
+    }
     throw new OAuthCredentialError('Invalid Google id token');
   }
 }

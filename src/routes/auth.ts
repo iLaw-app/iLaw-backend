@@ -55,7 +55,13 @@ function oauthCallback(provider: OAuthProvider) {
 
     passport.authenticate(provider, { session: false }, (error: unknown, user: Express.User | false) => {
       void (async () => {
-        if (error || !user) {
+        if (error) {
+          res.clearCookie(OAUTH_TRANSACTION_COOKIE, oauthClearCookieOptions);
+          next(error);
+          return;
+        }
+
+        if (!user) {
           res.clearCookie(OAUTH_TRANSACTION_COOKIE, oauthClearCookieOptions);
           res.redirect(303, buildOAuthRedirectUri(transaction.redirectUri, { error: 'login_failed' }));
           return;
@@ -81,10 +87,16 @@ type PassportConfigurator = Pick<typeof passport, 'use'>;
 const configuredPassportInstances = new WeakSet<object>();
 
 /**
- * Register OAuth strategies explicitly from the application bootstrap.
+ * Application-bootstrap integration hook for OAuth strategy registration.
  * Importing this route module never mutates Passport's global strategy registry.
+ * The application bootstrap must call this once before mounting `authRouter`:
+ *
+ * @example
+ * import authRouter, { configureAuthPassport } from './routes/auth';
+ * configureAuthPassport();
+ * app.use('/auth', authRouter);
  */
-export function configureAuthPassport(passportInstance: PassportConfigurator = passport) {
+export function configureAuthPassport(passportInstance: PassportConfigurator = passport): void {
   if (configuredPassportInstances.has(passportInstance)) return;
 
   if (process.env.KAKAO_CLIENT_ID) {

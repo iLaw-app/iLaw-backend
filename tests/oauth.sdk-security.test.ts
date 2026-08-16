@@ -30,6 +30,38 @@ describe('OAuth provider adapter', () => {
     axiosMock.get.mockRejectedValueOnce({ code: 'ECONNABORTED' });
     await expect(verifyKakaoAccessToken('slow')).rejects.toBeInstanceOf(OAuthProviderUnavailableError);
   });
+
+  it.each(['ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN', 'ETIMEDOUT'])(
+    'Google verifyIdToken의 %s 네트워크 오류를 provider 장애로 분류한다',
+    async (code) => {
+      const { verifyGoogleIdToken, OAuthProviderUnavailableError } = await import('../src/services/oauth-provider.service');
+      const client = { verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error('network failure'), { code })) };
+
+      await expect(verifyGoogleIdToken('token', client as never)).rejects.toBeInstanceOf(
+        OAuthProviderUnavailableError,
+      );
+    },
+  );
+
+  it('Google verifyIdToken의 provider 5xx 응답을 provider 장애로 분류한다', async () => {
+    const { verifyGoogleIdToken, OAuthProviderUnavailableError } = await import('../src/services/oauth-provider.service');
+    const client = {
+      verifyIdToken: vi.fn().mockRejectedValue(Object.assign(new Error('upstream unavailable'), {
+        response: { status: 503 },
+      })),
+    };
+
+    await expect(verifyGoogleIdToken('token', client as never)).rejects.toBeInstanceOf(
+      OAuthProviderUnavailableError,
+    );
+  });
+
+  it('Google invalid token 오류는 credential 오류로 유지한다', async () => {
+    const { verifyGoogleIdToken, OAuthCredentialError } = await import('../src/services/oauth-provider.service');
+    const client = { verifyIdToken: vi.fn().mockRejectedValue(new Error('Invalid token signature')) };
+
+    await expect(verifyGoogleIdToken('bad-token', client as never)).rejects.toBeInstanceOf(OAuthCredentialError);
+  });
 });
 
 describe('SDK login controller 오류 분류', () => {

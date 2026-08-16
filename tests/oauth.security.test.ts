@@ -4,12 +4,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const passportMock = vi.hoisted(() => ({
   capturedState: undefined as string | undefined,
+  callbackError: null as unknown,
+  callbackUser: { id: 'oauth-user', profileCompleted: false } as unknown as Express.User | false,
   initialize: vi.fn(() => (_req: unknown, _res: unknown, next: () => void) => next()),
   use: vi.fn(),
   authenticate: vi.fn((_strategy: string, options: { state?: string }, callback?: (error: unknown, user?: Express.User | false) => void) => {
     return (_req: unknown, res: { redirect: (status: number, location: string) => void }, _next: () => void) => {
       if (callback) {
-        callback(null, { id: 'oauth-user', profileCompleted: false } as unknown as Express.User);
+        callback(passportMock.callbackError, passportMock.callbackUser);
         return;
       }
       passportMock.capturedState = options?.state;
@@ -61,6 +63,8 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   passportMock.capturedState = undefined;
+  passportMock.callbackError = null;
+  passportMock.callbackUser = { id: 'oauth-user', profileCompleted: false } as unknown as Express.User;
 
   prismaMock.oAuthLoginCode.create.mockResolvedValue({ id: 1 });
   prismaMock.oAuthLoginCode.findUnique.mockResolvedValue({
@@ -78,14 +82,18 @@ beforeEach(() => {
   prismaMock.$transaction.mockImplementation(async (operation: (client: typeof prismaMock) => Promise<unknown>) => operation(prismaMock));
 });
 
-async function startGoogleLogin() {
-  const response = await request(app).get('/auth/google').query({ target: 'web' });
+async function startOAuthLogin(provider: 'google' | 'kakao') {
+  const response = await request(app).get(`/auth/${provider}`).query({ target: 'web' });
   const setCookies = response.headers['set-cookie'] as unknown as string[] | undefined;
   return {
     response,
     cookie: setCookies?.[0]?.split(';')[0],
     state: passportMock.capturedState,
   };
+}
+
+async function startGoogleLogin() {
+  return startOAuthLogin('google');
 }
 
 describe('OAuth 시작 요청', () => {
@@ -146,6 +154,47 @@ describe('OAuth 콜백', () => {
     const code = new URL(response.headers.location).searchParams.get('code');
     expect(prismaMock.oAuthLoginCode.create.mock.calls[0][0].data.codeHash).not.toBe(code);
   });
+
+  it.each(['google', 'kakao'] as const)(
+    '%s Passport 내부 오류를 login_failed로 바꾸지 않고 중앙 error handler에 전달한다',
+    async (provider) => {
+      const { cookie, state } = await startOAuthLogin(provider);
+      const internalError = new Error(`${provider} database unavailable`);
+      passportMock.callbackError = internalError;
+      passportMock.callbackUser = false;
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      try {
+        const response = await request(app)
+          .get(`/auth/${provider}/callback`)
+          .set('Cookie', cookie!)
+          .query({ state });
+
+        expect(response.status).toBe(500);
+        expect(response.body).toEqual({ message: 'Internal server error' });
+        expect(response.headers.location).toBeUndefined();
+        expect(consoleError).toHaveBeenCalledWith('[ERROR]', internalError);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it.each(['google', 'kakao'] as const)(
+    '%s credential 실패(!user)는 기존 login_failed redirect를 유지한다',
+    async (provider) => {
+      const { cookie, state } = await startOAuthLogin(provider);
+      passportMock.callbackUser = false;
+
+      const response = await request(app)
+        .get(`/auth/${provider}/callback`)
+        .set('Cookie', cookie!)
+        .query({ state });
+
+      expect(response.status).toBe(303);
+      expect(response.headers.location).toBe('https://frontend.test/auth?error=login_failed');
+    },
+  );
 
   it('브라우저 트랜잭션 쿠키가 없으면 콜백을 거부한다', async () => {
     const { state } = await startGoogleLogin();

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middlewares/authenticate';
-import { uploadToS3 } from '../services/upload.service';
+import { StorageUnavailableError, uploadToS3 } from '../services/upload.service';
+import { UploadValidationError } from '../services/upload-image.validation';
 
 export async function uploadImage(req: AuthRequest, res: Response) {
   const file = (req as any).file as Express.Multer.File | undefined;
@@ -17,6 +18,18 @@ export async function uploadImage(req: AuthRequest, res: Response) {
     return;
   }
 
-  const url = await uploadToS3(file.buffer, file.mimetype);
-  res.status(201).json({ url });
+  try {
+    const url = await uploadToS3(file.buffer);
+    res.status(201).json({ url });
+  } catch (error) {
+    if (error instanceof UploadValidationError) {
+      res.status(400).json({ message: error.message });
+      return;
+    }
+    if (error instanceof StorageUnavailableError) {
+      res.status(503).json({ message: 'Image storage is temporarily unavailable' });
+      return;
+    }
+    throw error;
+  }
 }

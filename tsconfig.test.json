@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "prisma/audit-migrations.ts", "vitest.config.mts"],
+  "exclude": ["node_modules", "dist", "tests/moderation.no-key.test.ts"]
+}

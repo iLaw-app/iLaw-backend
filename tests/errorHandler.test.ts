@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { errorHandler } from '../src/middlewares/errorHandler';
+import { logger } from '../src/middlewares/logging';
 
 function mockRes() {
   const res: any = { headersSent: false };
@@ -24,10 +25,14 @@ describe('errorHandler', () => {
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('falls back to 500 for unknown errors', () => {
+  it('falls back to 500 for unknown errors and logs the request id without leaking details', () => {
     const res = mockRes();
-    errorHandler(new Error('boom'), {} as any, res, vi.fn());
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    errorHandler(new Error('boom'), { id: 'req-500', method: 'GET', originalUrl: '/boom' } as any, res, vi.fn());
     expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({ message: 'Internal server error', requestId: 'req-500' });
+    expect(errorSpy).toHaveBeenCalledWith(expect.objectContaining({ event: 'request_error', requestId: 'req-500', error: 'boom' }));
+    errorSpy.mockRestore();
   });
 
   it('does nothing when headers are already sent', () => {

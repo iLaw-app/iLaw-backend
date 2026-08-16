@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { Prisma } from '@prisma/client';
+import { logger } from './logging';
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (res.headersSent) return;
 
   // Map known Prisma errors to meaningful statuses instead of a blanket 500.
@@ -16,7 +17,14 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     }
   }
 
-  // Unexpected errors: log and return a generic 500 (no internals leaked).
-  console.error('[ERROR]', err);
-  res.status(500).json({ message: 'Internal server error' });
+  const error = err instanceof Error ? err : new Error(String(err));
+  logger.error({
+    event: 'request_error',
+    requestId: req.id,
+    method: req.method,
+    path: req.path,
+    error: error.message,
+    stack: error.stack,
+  });
+  res.status(500).json({ message: 'Internal server error', requestId: req.id });
 }

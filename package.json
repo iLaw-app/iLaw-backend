@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/server.ts",
     "build": "tsc",
-    "start": "npx prisma migrate deploy && node dist/server.js",
+    "start": "npm run db:deploy && node dist/server.js",
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "migrate:audit": "ts-node prisma/audit-migrations.ts",
@@ -17,7 +17,13 @@
     "content:check": "ts-node prisma/notion-migrate.ts",
     "migrate:local": "ts-node prisma/notion-migrate.ts --apply --target=local",
     "ai:embed": "ts-node prisma/backfill-embeddings.ts",
-    "ai:embed:local": "ts-node prisma/backfill-embeddings.ts --apply --target=local"
+    "ai:embed:local": "ts-node prisma/backfill-embeddings.ts --apply --target=local",
+    "db:deploy": "prisma migrate deploy",
+    "lint": "eslint src tests prisma/*.ts",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "test:coverage": "vitest run --coverage",
+    "quality": "npm run lint && npm run typecheck && npm run typecheck:test && npm run test:coverage && npm run build"
   },
   "keywords": [],
   "author": "",
@@ -32,20 +38,21 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",
     "@prisma/client": "^5.22.0",
-    "axios": "^1.16.0",
+    "axios": "^1.19.0",
     "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
+    "multer": "^2.2.0",
     "openai": "^6.37.0",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-kakao": "^1.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -55,12 +62,20 @@
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/supertest": "^7.2.1",
+    "@vitest/coverage-v8": "^4.1.10",
     "dotenv-cli": "^11.0.0",
+    "eslint": "^9.39.5",
     "nodemon": "^3.1.14",
     "prisma": "^5.22.0",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "passport-kakao": {
+      "passport-oauth2": "^1.8.0"
+    }
   }
 }

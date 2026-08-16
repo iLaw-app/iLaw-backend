@@ -12,9 +12,18 @@ import communityRouter from './routes/community';
 import aiRouter from './routes/ai';
 import homeRouter from './routes/home';
 import { errorHandler } from './middlewares/errorHandler';
+import prisma from './prisma/client';
+import { createHealthRouter } from './health';
+import { accessLogger, requestId } from './middlewares/logging';
+import { globalRateLimiter } from './middlewares/rateLimit';
 
 const app = express();
 
+app.set('trust proxy', 1);
+app.use(requestId);
+app.use(accessLogger());
+app.use('/health', createHealthRouter(prisma));
+app.use(globalRateLimiter.middleware);
 app.use(cors(buildCorsOptions()));
 app.use(express.json());
 app.use(passport.initialize());
@@ -27,10 +36,6 @@ app.use('/notifications', notificationsRouter);
 app.use('/community', communityRouter);
 app.use('/ai', aiRouter);
 app.use('/home', homeRouter);
-
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
-});
 
 app.use(errorHandler);
 

@@ -1,10 +1,10 @@
-import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
 import { containsProfanity } from './profanity';
 import { moderateAndBlind } from './moderation.service';
 import { ANONYMOUS_POST_AUTHOR, HIDDEN_POST_STATUSES, UNCOUNTED_COMMENT_STATUSES } from './community-shared';
 import { buildCommentTree, buildLabelMapFromComments } from './community-presenter';
 import { formatPoll, getVoteCounts, parsePollInput, PollDefinition, samePollOptions } from './community-poll.service';
+import { runCommunitySerializableTransaction } from './community-transaction';
 
 export async function listPosts(page: number, limit: number) {
   const skip = (page - 1) * limit;
@@ -156,40 +156,43 @@ export async function updatePost(
     return { error: 'profanity_blocked' as const };
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const post = await tx.communityPost.findUnique({
-      where: { id },
-      select: { authorId: true, poll: true },
-    });
-    if (!post) return { error: 'not_found' as const };
-    if (post.authorId !== userId) return { error: 'forbidden' as const };
+  const result = await runCommunitySerializableTransaction(
+    (operation, options) => prisma.$transaction(operation, options),
+    async (tx) => {
+      const post = await tx.communityPost.findUnique({
+        where: { id },
+        select: { authorId: true, poll: true },
+      });
+      if (!post) return { error: 'not_found' as const };
+      if (post.authorId !== userId) return { error: 'forbidden' as const };
 
-    let poll: PollDefinition | undefined;
-    if (data.poll !== undefined) {
-      const parsed = parsePollInput(data.poll);
-      if ('error' in parsed) return parsed;
-      poll = parsed.data;
+      let poll: PollDefinition | undefined;
+      if (data.poll !== undefined) {
+        const parsed = parsePollInput(data.poll);
+        if ('error' in parsed) return parsed;
+        poll = parsed.data;
 
-      if (!samePollOptions(post.poll, poll)) {
-        const voteCount = await tx.communityPollVote.count({ where: { postId: id } });
-        if (voteCount > 0) return { error: 'poll_locked' as const };
-      } else {
-        poll = undefined;
+        if (!samePollOptions(post.poll, poll)) {
+          const voteCount = await tx.communityPollVote.count({ where: { postId: id } });
+          if (voteCount > 0) return { error: 'poll_locked' as const };
+        } else {
+          poll = undefined;
+        }
       }
-    }
 
-    const updated = await tx.communityPost.update({
-      where: { id },
-      data: {
-        title: data.title,
-        content: data.content,
-        ...(data.imageUrls !== undefined && { imageUrls: data.imageUrls }),
-        ...(poll !== undefined && { poll }),
-      },
-      select: { id: true, title: true, content: true, imageUrls: true, poll: true, updatedAt: true },
-    });
-    return { data: updated };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      const updated = await tx.communityPost.update({
+        where: { id },
+        data: {
+          title: data.title,
+          content: data.content,
+          ...(data.imageUrls !== undefined && { imageUrls: data.imageUrls }),
+          ...(poll !== undefined && { poll }),
+        },
+        select: { id: true, title: true, content: true, imageUrls: true, poll: true, updatedAt: true },
+      });
+      return { data: updated };
+    },
+  );
 
   const updated = 'data' in result ? result.data : undefined;
   if (updated) {

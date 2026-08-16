@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 
 const prismaMock = vi.hoisted(() => ({
   $transaction: vi.fn(),
@@ -48,7 +49,7 @@ function postRow() {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   prismaMock.$transaction.mockImplementation(async (operation: (tx: typeof prismaMock) => unknown) => operation(prismaMock));
   prismaMock.communityPost.findUnique.mockResolvedValue(postRow());
   prismaMock.communityPost.create.mockResolvedValue({
@@ -215,6 +216,32 @@ describe('원자적 투표와 선택지 잠금', () => {
     expect(prismaMock.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     });
+  });
+
+  it('투표 transaction의 P2034를 재시도한다', async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError('write conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    prismaMock.$transaction
+      .mockRejectedValueOnce(conflict)
+      .mockImplementationOnce(async (operation: (tx: typeof prismaMock) => unknown) => operation(prismaMock));
+
+    await expect(communityService.votePoll(1, 'user-1', 0)).resolves.toHaveProperty('data');
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('게시글 수정 transaction의 P2034를 재시도한다', async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError('write conflict', {
+      code: 'P2034',
+      clientVersion: 'test',
+    });
+    prismaMock.$transaction
+      .mockRejectedValueOnce(conflict)
+      .mockImplementationOnce(async (operation: (tx: typeof prismaMock) => unknown) => operation(prismaMock));
+
+    await expect(communityService.updatePost(1, 'author-1', { title: '수정' })).resolves.toHaveProperty('data');
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(2);
   });
 
   it('컨트롤러가 poll_locked를 HTTP 409로 매핑한다', async () => {

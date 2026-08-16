@@ -1,5 +1,5 @@
-import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
+import { runCommunitySerializableTransaction } from './community-transaction';
 
 export type PollOptionDefinition = { label: string };
 export type PollDefinition = { options: PollOptionDefinition[] };
@@ -85,30 +85,33 @@ export function samePollOptions(left: unknown, right: PollDefinition) {
 }
 
 export async function votePoll(postId: number, userId: string, optionIndex: number) {
-  return prisma.$transaction(async (tx) => {
-    const post = await tx.communityPost.findUnique({
-      where: { id: postId },
-      select: { id: true, poll: true },
-    });
-    if (!post) return { error: 'not_found' as const };
+  return runCommunitySerializableTransaction(
+    (operation, options) => prisma.$transaction(operation, options),
+    async (tx) => {
+      const post = await tx.communityPost.findUnique({
+        where: { id: postId },
+        select: { id: true, poll: true },
+      });
+      if (!post) return { error: 'not_found' as const };
 
-    const poll = normalizeStoredPoll(post.poll);
-    if (!poll) return { error: 'no_poll' as const };
-    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
-      return { error: 'invalid_option' as const };
-    }
+      const poll = normalizeStoredPoll(post.poll);
+      if (!poll) return { error: 'no_poll' as const };
+      if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) {
+        return { error: 'invalid_option' as const };
+      }
 
-    await tx.communityPollVote.upsert({
-      where: { userId_postId: { userId, postId } },
-      create: { userId, postId, optionIndex },
-      update: { optionIndex },
-    });
+      await tx.communityPollVote.upsert({
+        where: { userId_postId: { userId, postId } },
+        create: { userId, postId, optionIndex },
+        update: { optionIndex },
+      });
 
-    const voteCounts = await tx.communityPollVote.groupBy({
-      by: ['optionIndex'],
-      where: { postId },
-      _count: { _all: true },
-    });
-    return { data: { poll: formatPoll(poll, voteCounts, optionIndex) } };
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      const voteCounts = await tx.communityPollVote.groupBy({
+        by: ['optionIndex'],
+        where: { postId },
+        _count: { _all: true },
+      });
+      return { data: { poll: formatPoll(poll, voteCounts, optionIndex) } };
+    },
+  );
 }

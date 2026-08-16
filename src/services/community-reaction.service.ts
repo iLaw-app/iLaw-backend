@@ -2,8 +2,8 @@ import { Prisma } from '@prisma/client';
 import prisma from '../prisma/client';
 import { ANONYMOUS_POST_AUTHOR, UNCOUNTED_COMMENT_STATUSES } from './community-shared';
 
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+function isKnownRequestError(error: unknown, code: string): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
 }
 
 export async function toggleLike(postId: number, userId: string) {
@@ -15,17 +15,25 @@ export async function toggleLike(postId: number, userId: string) {
   });
 
   if (exists) {
-    await prisma.communityLike.delete({ where: { userId_postId: { userId, postId } } });
+    let liked = false;
+    try {
+      await prisma.communityLike.delete({ where: { userId_postId: { userId, postId } } });
+    } catch (error) {
+      if (!isKnownRequestError(error, 'P2025')) throw error;
+      liked = !!await prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId } } });
+    }
     const count = await prisma.communityLike.count({ where: { postId } });
-    return { data: { liked: false, count } };
+    return { data: { liked, count } };
   } else {
+    let liked = true;
     try {
       await prisma.communityLike.create({ data: { userId, postId } });
     } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
+      if (!isKnownRequestError(error, 'P2002')) throw error;
+      liked = !!await prisma.communityLike.findUnique({ where: { userId_postId: { userId, postId } } });
     }
     const count = await prisma.communityLike.count({ where: { postId } });
-    return { data: { liked: true, count } };
+    return { data: { liked, count } };
   }
 }
 
@@ -38,18 +46,26 @@ export async function toggleBookmark(postId: number, userId: string) {
   });
 
   if (exists) {
-    await prisma.communityBookmark.delete({ where: { userId_postId: { userId, postId } } });
+    let bookmarked = false;
+    try {
+      await prisma.communityBookmark.delete({ where: { userId_postId: { userId, postId } } });
+    } catch (error) {
+      if (!isKnownRequestError(error, 'P2025')) throw error;
+      bookmarked = !!await prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId } } });
+    }
     const count = await prisma.communityBookmark.count({ where: { postId } });
-    return { data: { bookmarked: false, count } };
+    return { data: { bookmarked, count } };
   }
 
+  let bookmarked = true;
   try {
     await prisma.communityBookmark.create({ data: { userId, postId } });
   } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
+    if (!isKnownRequestError(error, 'P2002')) throw error;
+    bookmarked = !!await prisma.communityBookmark.findUnique({ where: { userId_postId: { userId, postId } } });
   }
   const count = await prisma.communityBookmark.count({ where: { postId } });
-  return { data: { bookmarked: true, count } };
+  return { data: { bookmarked, count } };
 }
 
 export async function getMyBookmarks(userId: string) {
@@ -104,16 +120,24 @@ export async function toggleCommentLike(commentId: number, userId: string) {
   });
 
   if (exists) {
-    await prisma.communityCommentLike.delete({ where: { userId_commentId: { userId, commentId } } });
+    let liked = false;
+    try {
+      await prisma.communityCommentLike.delete({ where: { userId_commentId: { userId, commentId } } });
+    } catch (error) {
+      if (!isKnownRequestError(error, 'P2025')) throw error;
+      liked = !!await prisma.communityCommentLike.findUnique({ where: { userId_commentId: { userId, commentId } } });
+    }
     const count = await prisma.communityCommentLike.count({ where: { commentId } });
-    return { data: { liked: false, count } };
+    return { data: { liked, count } };
   }
 
+  let liked = true;
   try {
     await prisma.communityCommentLike.create({ data: { userId, commentId } });
   } catch (error) {
-    if (!isUniqueViolation(error)) throw error;
+    if (!isKnownRequestError(error, 'P2002')) throw error;
+    liked = !!await prisma.communityCommentLike.findUnique({ where: { userId_commentId: { userId, commentId } } });
   }
   const count = await prisma.communityCommentLike.count({ where: { commentId } });
-  return { data: { liked: true, count } };
+  return { data: { liked, count } };
 }

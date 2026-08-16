@@ -762,6 +762,23 @@ paths:
                 type: array
                 items: { $ref: '#/components/schemas/CommunityPostListItem' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /community/my-posts:
+    get:
+      tags: [Community]
+      summary: 내가 작성한 게시글
+      description: >
+        목록의 작성자는 모두 '익명'으로 가려지므로 클라이언트가 목록만으로 자기 글을
+        구분할 수 없다. 글마다 상세를 조회해 isAuthor로 판별하지 않도록 하는 용도.
+        노출 상태(visible)인 글만 반환한다.
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CommunityPostListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /community/{id}:
     get:
       tags: [Community]
@@ -1321,6 +1338,10 @@ components:
         content: { type: string }
         category: { type: string }
         status: { type: string, enum: [pending, answered] }
+        imageUrls:
+          type: array
+          items: { type: string }
+          description: 목록 썸네일용. 상세를 다시 조회하지 않아도 되도록 목록에 포함한다.
         createdAt: { type: string, format: date-time }
         author:
           type: object

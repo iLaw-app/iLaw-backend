@@ -161,9 +161,23 @@ async function parseHtmlFile(htmlFile: string, uploadImages = true) {
   return { question, summary, content, order, categoryName };
 }
 
+// 이미지 URL은 본문 HTML에 그대로 박혀 저장된다. AWS_CDN_BASE_URL이 없으면
+// buildPublicObjectUrl이 S3 직접 URL을 만드는데, 버킷은 비공개라 그 URL은 403이다.
+// 즉 CDN 설정을 빠뜨린 채 운영에 적재하면 매뉴얼 이미지가 전부 깨진다.
+// (실제로 한 번 발생시킨 사고다.) 운영 대상이면 아예 시작하지 않는다.
+function requireCdnForProduction(target: string) {
+  if (target !== 'production') return;
+  if (process.env.AWS_CDN_BASE_URL?.trim()) return;
+  throw new Error(
+    'AWS_CDN_BASE_URL이 없습니다. 이대로 운영에 적재하면 본문 이미지가 비공개 S3 URL로 저장되어 전부 깨집니다.\n'
+    + '  Railway의 iLaw-backend 서비스에 설정된 값을 주입해서 실행하세요.',
+  );
+}
+
 async function main() {
   const mode = resolveScriptMode(process.argv.slice(2));
   printScriptMode(mode);
+  if (mode.apply) requireCdnForProduction(mode.target);
 
   const htmlFiles = fs.readdirSync(EXPORT_DIR)
     .filter(f => f.endsWith('.html'))

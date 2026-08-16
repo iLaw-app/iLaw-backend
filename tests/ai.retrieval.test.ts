@@ -85,7 +85,18 @@ describe('retrieveCandidates (렉시컬)', () => {
     );
   });
 
-  it('일치하는 매뉴얼이 없으면 빈 배열을 반환한다', async () => {
+  it('일치하는 매뉴얼이 없으면 전체 카탈로그(제목·카테고리만)를 폴백 후보로 준다', async () => {
+    // 1차(렉시컬 풀) 조회는 빈 결과, 2차(카탈로그) 조회는 전체 매뉴얼.
+    prismaMock.manualArticle.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(ARTICLES);
+
+    const candidates = await retrieveCandidates('관련없는질의');
+
+    expect(candidates.map((c) => c.id)).toEqual([1, 2]);
+    expect(candidates.every((c) => c.summary === null && c.score === 0)).toBe(true);
+    expect(candidates[0]).not.toHaveProperty('content');
+  });
+
+  it('DB에 매뉴얼이 하나도 없으면 빈 배열이다', async () => {
     prismaMock.manualArticle.findMany.mockResolvedValue([]);
     expect(await retrieveCandidates('관련없는질의')).toEqual([]);
   });
@@ -135,6 +146,15 @@ describe('retrieveCandidates (하이브리드)', () => {
     const ids = (await retrieveCandidates('임금')).map((c) => c.id);
 
     expect(ids).toEqual([2, 1]);
+  });
+
+  it('시맨틱이 비고 렉시컬도 무일치면 카탈로그 폴백으로 후보를 채운다(백필 전 상태)', async () => {
+    prismaMock.manualArticle.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce(ARTICLES);
+    prismaMock.$queryRaw.mockResolvedValue([]); // 현재 버전 벡터 없음
+
+    const ids = (await retrieveCandidates('친구들이 나 왕따시키는거 같아')).map((c) => c.id);
+
+    expect(ids).toEqual([1, 2]);
   });
 
   it('시맨틱 조회 실패 시 렉시컬 단독으로 폴백한다', async () => {

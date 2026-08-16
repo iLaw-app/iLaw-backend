@@ -79,6 +79,32 @@ async function semanticSearch(query: string, limit: number): Promise<number[]> {
   }
 }
 
+// 최후 폴백: 검색이 후보를 하나도 못 내면(시맨틱 벡터 없음/임베딩 장애 + 렉시컬 무일치)
+// 라우터에 빈 목록을 주는 대신 전체 매뉴얼 카탈로그(제목·카테고리만, 요약 생략)를 넘긴다.
+// 코퍼스가 ~100건이라 제목만이면 ~3k 토큰 — 정확도는 검색 경로보다 낮지만
+// "후보 0개 → 안내 불가 폴백 문구"보다는 훨씬 낫다. 발동 시 로그를 남겨 운영에서 알아챈다.
+async function catalogFallback(): Promise<Candidate[]> {
+  const rows = await prisma.manualArticle.findMany({
+    select: { id: true, question: true, category: { select: { slug: true, name: true } } },
+    orderBy: [{ categoryId: 'asc' }, { order: 'asc' }, { id: 'asc' }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    question: r.question,
+    summary: null,
+    categorySlug: r.category.slug,
+    categoryName: r.category.name,
+    score: 0,
+  }));
+}
+
+async function withCatalogFallback(candidates: Candidate[], reason: string): Promise<Candidate[]> {
+  if (candidates.length > 0) return candidates;
+  const catalog = await catalogFallback();
+  logger.info({ event: 'ai_retrieval_catalog_fallback', reason, catalogSize: catalog.length });
+  return catalog;
+}
+
 // Retrieve the top-K most relevant manuals for a free-text situation, across
 // ALL categories (no category filter — complex situations legitimately span
 // several). This replaces stuffing the entire manual list into the prompt.
@@ -103,7 +129,7 @@ export async function retrieveCandidates(
   });
 
   if (!hybridEnabled()) {
-    return ranked.slice(0, limit).map(toCandidate);
+    return withCatalogFallback(ranked.slice(0, limit).map(toCandidate), 'lexical_only_no_match');
   }
 
   const byId = new Map<number, Candidate>(ranked.map((a) => [a.id, toCandidate(a)]));
@@ -130,8 +156,9 @@ export async function retrieveCandidates(
   }
 
   // semanticIds가 비면(백필 전/실패) 사실상 렉시컬 단독 순위로 수렴한다.
-  return fuseRRF([lexicalIds, semanticIds], 60, [LEXICAL_WEIGHT, SEMANTIC_WEIGHT])
+  const fused = fuseRRF([lexicalIds, semanticIds], 60, [LEXICAL_WEIGHT, SEMANTIC_WEIGHT])
     .map((f) => byId.get(f.id))
     .filter((c): c is Candidate => c !== undefined)
     .slice(0, limit);
+  return withCatalogFallback(fused, semanticIds.length === 0 ? 'semantic_unavailable_no_lexical_match' : 'no_match');
 }

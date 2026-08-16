@@ -2,7 +2,8 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as cheerio from 'cheerio';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { createHash } from 'crypto';
+import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { PrismaClient } from '@prisma/client';
 import { printScriptMode, resolveScriptMode } from './script-safety';
 import { planArticleSync } from './article-sync';
@@ -23,11 +24,13 @@ const EXPORT_DIR = path.join(__dirname, 'data/notion-export/DB');
 
 // 키 = Notion "카테고리" 속성값. displayName을 지정하면 DB에 저장되는 이름은 그쪽을 따른다
 // (Notion 쪽 명칭을 바꾸지 않고 서비스 노출명만 다르게 가져갈 때 사용).
+// order = 매뉴얼 화면 노출 순서. 프론트가 카테고리를 하드코딩하던 시절의 배열
+// 순서를 그대로 옮긴 값이라, 프론트를 API 기반으로 바꿔도 화면이 바뀌지 않는다.
 const CATEGORY_CONFIG: Record<string, { slug: string; order: number; displayName?: string }> = {
-  '금융':             { slug: 'finance',            order: 1 },
+  '아동학대/가정폭력': { slug: 'child-abuse',         order: 1 },
   '노동':             { slug: 'labor',               order: 2 },
-  '성폭력':           { slug: 'sexual-violence',     order: 3 },
-  '아동학대/가정폭력': { slug: 'child-abuse',         order: 4 },
+  '금융':             { slug: 'finance',             order: 3 },
+  '성폭력':           { slug: 'sexual-violence',     order: 4 },
   '온라인폭력':       { slug: 'online-violence',     order: 5 },
   '출생/양육':        { slug: 'birth-and-parenting', order: 6 },
   '법정대리인':       { slug: 'parental-rights',     order: 7 },
@@ -35,16 +38,48 @@ const CATEGORY_CONFIG: Record<string, { slug: string; order: number; displayName
   '생활 지원':        { slug: 'out-of-school-youth', order: 9, displayName: '학교 밖 청소년' },
 };
 
+let checkedUploads = 0;
+let skippedUploads = 0;
+
+// 이미 같은 내용이 올라가 있으면 업로드를 건너뛴다. PutObjectCommand는 단일 PUT이라
+// S3가 돌려주는 ETag가 본문의 MD5와 같으므로 그것으로 동일성을 판정한다.
+// 재적재는 대부분 이미지가 그대로여서, 이 검사가 실행 시간의 대부분을 없앤다.
+//
+// 403 처리: 이 스크립트의 자격증명에는 s3:ListBucket이 없다(버킷 전체 목록 조회를
+// 열지 않기 위해 일부러 주지 않는다). 그래서 객체가 없을 때 S3는 404가 아니라 403을
+// 준다. 권한 자체가 없는 경우와 구분되지 않지만, 어느 쪽이든 답은 "업로드하라"로
+// 같으므로 404와 동일하게 취급한다.
+async function isAlreadyUploaded(s3Key: string, body: Buffer): Promise<boolean> {
+  checkedUploads++;
+  try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: s3Key }));
+    const remoteETag = head.ETag?.replace(/"/g, '');
+    if (!remoteETag || remoteETag.includes('-')) return false; // 멀티파트 업로드분은 MD5 비교 불가
+    return remoteETag === createHash('md5').update(body).digest('hex');
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404 || status === 403) return false;
+    throw error;
+  }
+}
+
 async function uploadToS3(filePath: string, s3Key: string): Promise<string> {
   const ext = path.extname(filePath).toLowerCase();
   const contentTypeMap: Record<string, string> = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.webp': 'image/webp', '.gif': 'image/gif',
   };
+  const body = fs.readFileSync(filePath);
+
+  if (await isAlreadyUploaded(s3Key, body)) {
+    skippedUploads++;
+    return buildPublicObjectUrl(s3Key);
+  }
+
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: s3Key,
-    Body: fs.readFileSync(filePath),
+    Body: body,
     ContentType: contentTypeMap[ext] ?? 'image/png',
   }));
   return buildPublicObjectUrl(s3Key);
@@ -235,6 +270,10 @@ async function main() {
 
   for (const category of categoryRows.rows) console.log(`Category: ${category.name} (id=${category.id})`);
   console.log(`Done: ${parsedArticles.length} articles — 신규 ${categoryRows.created}, 갱신 ${categoryRows.updated}, 삭제 ${categoryRows.removed}`);
+  console.log(`이미지: ${checkedUploads}장 중 ${skippedUploads}장은 내용이 같아 업로드를 건너뛰었습니다.`);
+  if (checkedUploads > 0 && skippedUploads === 0) {
+    console.log('  하나도 건너뛰지 못했다면 s3:GetObject 권한이 없을 수 있습니다(manual-images/* 대상).');
+  }
   if (categoryRows.removed > 0) {
     console.log(`  주의: 삭제된 ${categoryRows.removed}건에 달린 사용자 스크랩도 함께 제거되었습니다.`);
   }

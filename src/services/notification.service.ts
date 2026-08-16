@@ -1,4 +1,5 @@
 import prisma from '../prisma/client';
+import { Pagination, paginationArgs } from '../utils/validation';
 
 export async function createNotificationsForLawyers(type: string, title: string, body: string, refId?: number) {
   const lawyers = await prisma.user.findMany({
@@ -17,11 +18,11 @@ export async function createNotification(userId: string, type: string, title: st
   });
 }
 
-export async function getUserNotifications(userId: string) {
+export async function getUserNotifications(userId: string, pagination: Pagination = { page: 1, limit: 20 }) {
   return prisma.notification.findMany({
+    ...paginationArgs(pagination),
     where: { userId },
-    orderBy: { createdAt: 'desc' },
-    take: 50,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
 }
 

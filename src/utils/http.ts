@@ -1,9 +1,10 @@
 import { Response } from 'express';
+import { Pagination, parsePagination, parsePositiveInteger } from './validation';
 
-// Parse a route param into a positive integer id, or null if invalid.
+// Parse a route param into a safe positive integer id, or null if invalid.
 export function parseId(raw: unknown): number | null {
-  const id = Number(raw);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  if (typeof raw === 'number') return Number.isSafeInteger(raw) && raw > 0 ? raw : null;
+  return parsePositiveInteger(raw);
 }
 
 // Parse an id and, if invalid, write a 400 response and return null.
@@ -15,6 +16,25 @@ export function requireId(res: Response, raw: unknown, message = '잘못된 ID�
     return null;
   }
   return id;
+}
+
+export function requirePagination(
+  res: Response,
+  query: Record<string, unknown>,
+  message = '요청 내용을 확인해주세요.',
+): Pagination | null {
+  const parsed = parsePagination(query);
+  if ('error' in parsed) {
+    res.status(400).json({ message });
+    return null;
+  }
+  return parsed.data;
+}
+
+export function setPaginationHeaders(res: Response, pagination: Pagination): void {
+  res.setHeader('Access-Control-Expose-Headers', 'X-Pagination-Page, X-Pagination-Limit');
+  res.setHeader('X-Pagination-Page', String(pagination.page));
+  res.setHeader('X-Pagination-Limit', String(pagination.limit));
 }
 
 type ErrorSpec = { status: number; message: string };

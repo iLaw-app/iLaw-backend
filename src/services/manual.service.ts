@@ -1,6 +1,7 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
 import { scoreAndRank } from './search.util';
+import { Pagination, paginationArgs } from '../utils/validation';
 
 export async function getCategories() {
   return prisma.manualCategory.findMany({
@@ -9,10 +10,11 @@ export async function getCategories() {
   });
 }
 
-export async function getArticlesByCategory(slug: string) {
+export async function getArticlesByCategory(slug: string, pagination?: Pagination) {
   return prisma.manualArticle.findMany({
+    ...(pagination ? paginationArgs(pagination) : {}),
     where: { category: { slug } },
-    orderBy: { order: 'asc' },
+    orderBy: [{ order: 'asc' }, { id: 'asc' }],
     select: { id: true, question: true, summary: true, order: true },
   });
 }
@@ -71,14 +73,15 @@ export async function rankManuals(
 export async function searchManualArticles(query: string, categorySlug?: string, debug = false) {
   const { ranked, expandedTerms } = await rankManuals(query, { categorySlug });
   // embedInputHash는 내부용(재임베딩 판정) 필드이므로 검색 응답에서 제외한다.
-  const results = ranked.map(({ score, embedInputHash, ...rest }) =>
+  const results = ranked.map(({ score, embedInputHash: _embedInputHash, ...rest }) =>
     debug ? { ...rest, score } : rest);
 
   return { results, expandedTerms };
 }
 
-export async function getAgencies(slug: string, region?: string) {
+export async function getAgencies(slug: string, region?: string, pagination?: Pagination) {
   return prisma.agency.findMany({
+    ...(pagination ? paginationArgs(pagination) : {}),
     where: {
       category: { slug },
       ...(region ? { region } : {}),

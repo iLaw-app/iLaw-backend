@@ -1,10 +1,12 @@
 import prisma from '../prisma/client';
 import { expandQuery } from './synonyms';
 import { scoreAndRank } from './search.util';
+import { Pagination, paginationArgs } from '../utils/validation';
 
-export async function listQAPosts(userId?: string) {
+export async function listQAPosts(userId?: string, pagination: Pagination = { page: 1, limit: 20 }) {
   const posts = await prisma.qnAPost.findMany({
-    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    ...paginationArgs(pagination),
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }, { id: 'desc' }],
     select: {
       id: true,
       title: true,
@@ -203,10 +205,11 @@ export async function searchQAPosts(query: string, debug = false) {
   return { results, expandedTerms: terms };
 }
 
-export async function listUserQAPosts(authorId: string) {
+export async function listUserQAPosts(authorId: string, pagination: Pagination = { page: 1, limit: 20 }) {
   return prisma.qnAPost.findMany({
+    ...paginationArgs(pagination),
     where: { authorId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
       id: true,
       title: true,
@@ -219,10 +222,11 @@ export async function listUserQAPosts(authorId: string) {
   });
 }
 
-export async function listLawyerAnswers(lawyerId: string) {
+export async function listLawyerAnswers(lawyerId: string, pagination: Pagination = { page: 1, limit: 20 }) {
   const answers = await prisma.qnAAnswer.findMany({
+    ...paginationArgs(pagination),
     where: { lawyerId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
       createdAt: true,
       post: {

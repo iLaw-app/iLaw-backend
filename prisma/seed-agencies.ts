@@ -21,6 +21,7 @@ const CATEGORY_CONFIG: Record<string, { name: string; slug: string; order: numbe
   'birth-and-parenting': { name: '출생과 양육',                 slug: 'birth-and-parenting', order: 6, agencyCsv: '출생과양육.csv' },
   'parental-rights':     { name: '친권 미성년후견',             slug: 'parental-rights',     order: 7, agencyCsv: '친권미성년후견.csv' },
   'school-violence':     { name: '학교폭력',                   slug: 'school-violence',     order: 8, agencyCsv: '학교폭력.csv' },
+  'out-of-school-youth': { name: '학교 밖 청소년',              slug: 'out-of-school-youth', order: 9, agencyCsv: '학교밖청소년.csv' },
 };
 
 function parseCsv(filePath: string): Array<{ region: string; name: string; role: string; contact: string }> {

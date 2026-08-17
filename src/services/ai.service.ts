@@ -182,7 +182,22 @@ const NO_MATCH_MESSAGE =
 const CRISIS_MESSAGE =
   '지금 위험한 상황이라면 망설이지 말고 즉시 112에 신고해 주세요. 아래 긴급 연락처로 도움을 받으실 수 있어요. 혼자 감당하지 마시고 꼭 도움을 요청하세요.';
 
-const MAX_AGENCY_SUGGESTIONS = 2;
+// 전화번호가 달린 suggestion(핫라인 + 지역 기관)은 답변당 총 2개까지만 노출한다.
+// 위기 상황에서 핫라인이 카테고리별로 4~6개까지 붙어 번호가 쏟아지던 문제를 막는다.
+const MAX_PHONE_SUGGESTIONS = 2;
+
+// 핫라인과 기관이 모두 있으면 한 자리씩 나눠 갖고(112 등 최우선 핫라인 + 내 지역 기관),
+// 한쪽이 비면 남은 자리를 다른 쪽으로 채운다.
+function takePhoneSuggestions(hotlines: Suggestion[], agencies: Suggestion[]): Suggestion[] {
+  const picked: Suggestion[] = [];
+  if (hotlines.length) picked.push(hotlines[0]);
+  if (agencies.length && picked.length < MAX_PHONE_SUGGESTIONS) picked.push(agencies[0]);
+  for (const rest of [...hotlines.slice(1), ...agencies.slice(1)]) {
+    if (picked.length >= MAX_PHONE_SUGGESTIONS) break;
+    picked.push(rest);
+  }
+  return picked;
+}
 
 // 멀티턴/확장 상태(needs_clarification) 및 chatEnded=false 를 실제로 내보낼지 여부.
 // 프론트 계약 변경 전까지는 꺼둔 채 배포해 기존 동작(relevant/unrelated, chatEnded=true)을 유지한다.
@@ -411,7 +426,7 @@ export async function diagnose(
     agencyRows.sort((a, b) =>
       (b.region === opts.region ? 1 : 0) - (a.region === opts.region ? 1 : 0));
   }
-  const agencySuggestions: Suggestion[] = agencyRows.slice(0, MAX_AGENCY_SUGGESTIONS).map(a => ({
+  const agencySuggestions: Suggestion[] = agencyRows.map(a => ({
     type: 'agency', id: a.id, label: a.name, contact: a.contact,
     ...(a.region ? { region: a.region } : {}),
   }));
@@ -421,9 +436,9 @@ export async function diagnose(
     const hotlineSuggestions: Suggestion[] = hotlinesFor(selectedSlugs).map(h => ({
       type: 'hotline', label: h.label, phone: h.phone,
     }));
-    suggestions = [...hotlineSuggestions, ...agencySuggestions, ...manualSuggestions];
+    suggestions = [...takePhoneSuggestions(hotlineSuggestions, agencySuggestions), ...manualSuggestions];
   } else {
-    suggestions = [...manualSuggestions, ...agencySuggestions];
+    suggestions = [...manualSuggestions, ...takePhoneSuggestions([], agencySuggestions)];
   }
 
   return finish({

@@ -103,6 +103,33 @@ describe('diagnose 위기 대응 (AI_CRISIS_ENABLED)', () => {
     expect(agency).toMatchObject({ type: 'agency', label: '서울아동보호전문기관', contact: '02-000-0000', region: '서울' });
   });
 
+  it('전화번호가 붙는 suggestion은 위기에서도 핫라인 1 + 기관 1로 총 2개만 노출한다', async () => {
+    // child-abuse 핫라인(112/1391) + 공통(119/1393) = 4개, 기관 2개 → 총 6개 후보
+    prismaMock.agency.findMany.mockResolvedValue([
+      { id: 100, region: '서울', name: '서울아동보호전문기관', role: '상담', contact: '02-000-0000' },
+      { id: 101, region: '부산', name: '부산아동보호전문기관', role: '상담', contact: '051-000-0000' },
+    ]);
+    openAiCreateMock
+      .mockResolvedValueOnce(
+        routerResponse({
+          status: 'relevant',
+          situationSummary: 'x',
+          references: [{ type: 'manual', id: 7 }],
+          isCrisis: true,
+        }),
+      )
+      .mockResolvedValueOnce(textResponse('안내'));
+
+    const result = await diagnose('아이가 맞고 있어요', '홍길동', [], { region: '서울' });
+
+    const phoneSuggestions = result.suggestions.filter(
+      (s) => s.type === 'hotline' || s.type === 'agency',
+    );
+    expect(phoneSuggestions).toHaveLength(2);
+    expect(phoneSuggestions[0]).toMatchObject({ type: 'hotline', phone: '112' });
+    expect(phoneSuggestions[1]).toMatchObject({ type: 'agency', region: '서울', contact: '02-000-0000' });
+  });
+
   it('룰 키워드만으로도(라우터 isCrisis=false) 위기로 승격한다', async () => {
     openAiCreateMock
       .mockResolvedValueOnce(

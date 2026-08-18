@@ -71,3 +71,13 @@ export async function updateUserProfile(userId: string, input: UpdateProfileInpu
     select: { id: true, nickname: true, region: true, birthDate: true, gender: true, affiliation: true },
   });
 }
+
+export type UserRole = 'user' | 'lawyer';
+
+export async function setUserRole(userId: string, role: UserRole) {
+  return prisma.user.update({
+    where: { id: userId },
+    data: { role },
+    select: { id: true, role: true },
+  });
+}

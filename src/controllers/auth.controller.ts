@@ -15,6 +15,7 @@ import {
   completeUserProfile,
   getUserProfile,
   isUniqueConstraintError,
+  setUserRole,
   updateUserProfile,
 } from '../services/profile.service';
 
@@ -185,6 +186,30 @@ export async function updateProfile(req: AuthRequest, res: Response, next: NextF
       res.status(409).json({ message: 'nickname already taken' });
       return;
     }
+    next(error);
+  }
+}
+
+// 개발/테스트용 self role 전환 (마이페이지 앱버전 5탭).
+// ALLOW_SELF_ROLE_SWITCH=true 일 때만 노출되고, 그 외에는 라우트가 없는 것처럼 404.
+export function isSelfRoleSwitchEnabled(): boolean {
+  return process.env.ALLOW_SELF_ROLE_SWITCH === 'true';
+}
+
+export async function switchRole(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!isSelfRoleSwitchEnabled()) {
+    res.status(404).json({ message: 'Not found' });
+    return;
+  }
+  const { role } = req.body as { role?: unknown };
+  if (role !== 'user' && role !== 'lawyer') {
+    res.status(400).json({ message: 'role must be user or lawyer' });
+    return;
+  }
+  try {
+    const updated = await setUserRole(req.userId!, role);
+    res.json(updated);
+  } catch (error) {
     next(error);
   }
 }

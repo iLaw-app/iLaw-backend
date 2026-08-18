@@ -3,7 +3,7 @@ import passport from 'passport';
 import { Strategy as KakaoStrategy } from 'passport-kakao';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { upsertUser } from '../services/auth.service';
-import { exchangeOAuthCode, handleSocialCallback, refresh, logout, getMe, completeProfile, deleteAccount, updateProfile } from '../controllers/auth.controller';
+import { exchangeOAuthCode, handleSocialCallback, refresh, logout, getMe, completeProfile, deleteAccount, updateProfile, switchRole } from '../controllers/auth.controller';
 import { kakaoSdkLogin, googleSdkLogin } from '../controllers/social.controller';
 import { authenticate } from '../middlewares/authenticate';
 import {
@@ -161,6 +161,7 @@ router.get('/me', authenticate, getMe);
 router.patch('/profile', authenticate, completeProfile);
 router.patch('/me', authenticate, updateProfile);
 router.delete('/me', authenticate, deleteAccount);
+router.patch('/role', authenticate, switchRole);
 
 router.post('/kakao/token', kakaoSdkLogin);
 

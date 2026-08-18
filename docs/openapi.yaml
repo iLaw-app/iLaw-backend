@@ -310,6 +310,35 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /auth/role:
+    patch:
+      tags: [Auth]
+      summary: (개발용) 내 역할 전환
+      description: |
+        마이페이지 "앱버전" 5회 탭 시 호출. 본인의 role을 user ↔ lawyer 로 바꾼다.
+        서버 환경변수 `ALLOW_SELF_ROLE_SWITCH=true` 일 때만 동작하며, 꺼져 있으면 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [user, lawyer] }
+      responses:
+        '200':
+          description: 변경된 역할
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  role: { type: string, enum: [user, lawyer] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ─────────────────────────── MANUAL ───────────────────────────
   /manual/search:

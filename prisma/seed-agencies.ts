@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import { readAgencyCsv } from './agency-csv';
 import { printScriptMode, resolveScriptMode } from './script-safety';
 
 const prisma = new PrismaClient();
@@ -23,21 +24,6 @@ const CATEGORY_CONFIG: Record<string, { name: string; slug: string; order: numbe
   'school-violence':     { name: '학교폭력',                   slug: 'school-violence',     order: 8, agencyCsv: '학교폭력.csv' },
   'out-of-school-youth': { name: '학교 밖 청소년',              slug: 'out-of-school-youth', order: 9, agencyCsv: '학교밖청소년.csv' },
 };
-
-function parseCsv(filePath: string): Array<{ region: string; name: string; role: string; contact: string }> {
-  const text = fs.readFileSync(filePath, 'utf-8');
-  const lines = text.split('\n').slice(1); // skip header
-
-  return lines
-    .map(line => line.split(','))
-    .filter(cols => cols.length >= 4 && cols[0].trim() && cols[1].trim())
-    .map(cols => ({
-      region:  cols[0].trim(),
-      name:    cols[1].trim(),
-      role:    cols[2].trim(),
-      contact: cols[3].trim(),
-    }));
-}
 
 async function main() {
   const args = process.argv.slice(2);
@@ -61,7 +47,7 @@ async function main() {
     process.exit(1);
   }
 
-  const agencies = parseCsv(csvPath);
+  const agencies = readAgencyCsv(csvPath);
   const mode = resolveScriptMode(args);
   printScriptMode(mode);
   console.log(`Validated ${agencies.length} agencies for ${config.name}.`);
